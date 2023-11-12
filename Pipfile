@@ -8,8 +8,13 @@ openai = "*"
 flask = "*"
 flask-sqlalchemy = "*"
 backoff = "*"
+pydantic = "*"
+flask-restx = "*"
+sqlmodel = "*"
 
 [dev-packages]
+autopep8 = "*"
+sqlalchemy-stubs = "*"
 
 [requires]
 python_version = "3.10"

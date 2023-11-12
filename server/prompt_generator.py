@@ -46,19 +46,20 @@ generate_scene_text_step_1 — generate the text for a scene.
 generate_scene_text_step_2 — edit and improve the text.
 """
 
+
 def generate_system_instruction(description: str,
                                 style: str,
                                 themes: str,
-                                setting: Optional[str] = None,
-                                main_characters: Optional[str] = None,
-                                summary: Optional[str] = None,
-                                outline: Optional[str] = None,
-                                fact_sheet: Optional[str] = None,
-                                characters: Optional[str] = None) -> str:
+                                setting: str | None = None,
+                                main_characters: str | None = None,
+                                summary: str | None = None,
+                                outline: str | None = None,
+                                fact_sheet: str | None = None,
+                                characters: str | None = None) -> str:
 
     base = f"""
     You are a skilled, NYT bestselling author and editor, and you have been tasked with ghost writing high quality stories for a major publisher.
-    Our goal here is to write a novel length work of fiction, meaning 70k-120k words.
+    Our goal here is to write a novel length work, meaning 70k-120k words.
 
     You have been given the following parameters:
     Themes, aka the general themes you will write about: {themes}
@@ -94,7 +95,7 @@ def generate_system_instruction(description: str,
 
 
 # TODO: experimentally test adding the outline etc in the system instruction is stronger.
-def generate_story_base():
+def generate_story_base() -> str:
     """
     Generate a story outline from the given parameters.
     """
@@ -114,7 +115,7 @@ def generate_story_base():
     return strip_tabs(prompt)
 
 
-def generate_story_outline_step_1():
+def generate_story_outline_step_1() -> str:
     """
     Generate the one sentence outline of the story.
 
@@ -135,7 +136,8 @@ def generate_story_outline_step_1():
     """
     return strip_tabs(prompt)
 
-def generate_story_outline_step_2():
+
+def generate_story_outline_step_2() -> str:
     """
     Generate the main events outline of the story.
 
@@ -145,7 +147,7 @@ def generate_story_outline_step_2():
     prompt = """
     In this step we'll expand on the one sentence outline of the story with a list of main events for each chapter. Please stick to the outline you created in the previous message and keep in mind the the information about the story given in the system prompt.
 
-    The purpose is particularly important, since we want to be clear about what each chapter is doing in the story. This will help us write tight, high quality fiction. If this chapter doesn't serve a clear purpose, we should note it in this pass in the "chapter purpose" section for later editing.
+    The purpose is particularly important, since we want to be clear about what each chapter is doing in the story. This will help us write tight, high quality prose. If this chapter doesn't serve a clear purpose, we should note it in this pass in the "chapter purpose" section for later editing.
 
     Please respond using valid markdown syntax, separating the sections as shown. We've used <> to indicate where you should fill things:
     ```
@@ -155,8 +157,7 @@ def generate_story_outline_step_2():
     return strip_tabs(prompt)
 
 
-
-def generate_story_outline_step_3():
+def generate_story_outline_step_3() -> str:
     """
     Generate the main events outline of the story.
 
@@ -179,7 +180,7 @@ def generate_story_outline_step_3():
     return strip_tabs(prompt)
 
 
-def generate_story_outline_step_4():
+def generate_story_outline_step_4() -> str:
     """
     Generate the main events outline of the story.
 
@@ -195,41 +196,18 @@ def generate_story_outline_step_4():
 
     Please respond using valid markdown syntax, separating the sections as shown. We've used <> to indicate where you should fill things:
     ```
-    # Outline
-
-    # Part 1/Arc 1 — <Title> (optional)
-    ## Chapter 1 — <Title>
-    ### Chapter Purpose
-    <the function of this chapter in the story>
-    ### Main Events
-    <a list of the main events of this chapter>
-    ### Chapter Summary
-    <a paragraph summarizing the chapter>
-    ### Chapter Notes
-    <the purpose of this chapter in the story, including theming, and any secondary functions like foreshadowing, character building, secondary character introductions, worldbuilding, chekovs guns, etc.>
-    ## Chapter 2 — <Title>
-    ### Chapter Purpose
-    <the function of this chapter in the story>
-    ### Main Events
-    <a list of the main events of this chapter>
-    ### Chapter Summary
-    <a paragraph summarizing the chapter>
-    ### Chapter Notes
-    <the purpose of this chapter in the story, including theming, and any secondary functions like foreshadowing, character building, secondary character introductions, worldbuilding, chekovs guns, etc.>
-    ...
-
-    # FactSheet
-    <list of important fact and context about the story, including how we keep the themes present>
-
-    # Characters
-    <list of all characters, including minor characters, and their roles in the story>
-    ```
     {formats.STORY_OUTLINE_FORMAT_STEP_4}
     ```
     """
     return strip_tabs(prompt)
 
-def generate_chapter_outline_step_1(chapter_number, title, purpose, summary, main_events, chapter_notes):
+
+def generate_chapter_outline_step_1(chapter_number: str,
+                                    title: str,
+                                    purpose: str,
+                                    summary: str,
+                                    main_events: str,
+                                    chapter_notes: str) -> str:
     """
     Generate the chapter outline.
 
@@ -263,7 +241,13 @@ def generate_chapter_outline_step_1(chapter_number, title, purpose, summary, mai
 
     return strip_tabs(prompt)
 
-def generate_chapter_outline_step_2(chapter_number, title, purpose, summary, main_events, chapter_notes):
+
+def generate_chapter_outline_step_2(chapter_number: str,
+                                    title: str,
+                                    purpose: str,
+                                    summary: str,
+                                    main_events: str,
+                                    chapter_notes: str) -> str:
     """
     Edit the chapter outline.
 
@@ -286,7 +270,16 @@ def generate_chapter_outline_step_2(chapter_number, title, purpose, summary, mai
     return strip_tabs(prompt)
 
 
-def generate_scene_outline_step_1(chapter_outline, scene_number, setting, primary_function, secondary_function, summary, context, previous_scene_outline=None, previous_chapter_outline=None, previous_chapter_last_scene_outline=None):
+def generate_scene_outline_step_1(chapter_outline: str,
+                                  scene_number: str,
+                                  setting: str,
+                                  primary_function: str,
+                                  secondary_function: str,
+                                  summary: str,
+                                  context: str,
+                                  previous_scene_outline: str | None = None,
+                                  previous_chapter_outline: str | None = None,
+                                  previous_chapter_last_scene_outline: str | None = None) -> str:
     """
     Generate the scene outline.
 
@@ -357,7 +350,14 @@ def generate_scene_outline_step_1(chapter_outline, scene_number, setting, primar
     """
     return strip_tabs(prompt)
 
-def generate_scene_outline_step_2(chapter_outline, previous_scene_outline, scene_number, setting, primary_function, secondary_function, summary, context):
+
+def generate_scene_outline_step_2(chapter_outline: str,
+                                  scene_number: str,
+                                  setting: str,
+                                  primary_function: str,
+                                  secondary_function: str,
+                                  summary: str,
+                                  context: str) -> str:
     prompt = f"""In this step you've taken on the role of a NYT bestselling editor. You're going to work through the outline generated for the previous message and you're going to improve it. Specifically we're going to make sure that, given the chapter outline and the information about the scene, we're writing a high quality scene. We'll expand on any dialogue that's too short by adding more placeholders, add description paragraphs where necessary, add blocking notes to dialog placeholders that are missing it, and generally tighten everything up.
 
 
@@ -391,7 +391,19 @@ def generate_scene_outline_step_2(chapter_outline, previous_scene_outline, scene
 
     return strip_tabs(prompt)
 
-def generate_scene_text_step_1(chapter_outline, scene_number, setting, primary_function, secondary_function, summary, context, scene_outline, previous_scene_outline=None, previous_chapter_outline=None, previous_chapter_last_scene_outline=None, previous_text=None):
+
+def generate_scene_text_step_1(chapter_outline: str,
+                               scene_number: str,
+                               setting: str,
+                               primary_function: str,
+                               secondary_function: str,
+                               summary: str,
+                               context: str,
+                               scene_outline: str,
+                               previous_scene_outline: str | None = None,
+                               previous_chapter_outline: str | None = None,
+                               previous_chapter_last_scene_outline: str | None = None,
+                               previous_text: str | None = None) -> str:
     prompt = f"""
 
     For general context, here's previous parts of the story, already written.
@@ -469,10 +481,16 @@ def generate_scene_text_step_1(chapter_outline, scene_number, setting, primary_f
     return strip_tabs(prompt)
 
 
-
-
-
-def generate_scene_text_step_2(chapter_outline, previous_scene_outline, scene_number, setting, primary_function, secondary_function, summary, context, scene_outline, scene_text_raw):
+def generate_scene_text_step_2(chapter_outline: str,
+                               scene_number: str,
+                               setting: str,
+                               primary_function: str,
+                               secondary_function: str,
+                               summary: str,
+                               context: str,
+                               scene_outline: str,
+                               previous_scene_outline: str,
+                               scene_text_raw: str) -> str:
 
     prompt = f"""
 
@@ -503,7 +521,7 @@ def generate_scene_text_step_2(chapter_outline, previous_scene_outline, scene_nu
 
     And here's the scene itself:
     \"\"\"
-    {scene_text_rawww}
+    {scene_text_raw}
     \"\"\"
 
     In order to improve the scene, we'll first make some editing notes on the earlier draft of the scene, then we'll go through and write an improved version of the scene.
@@ -515,4 +533,3 @@ def generate_scene_text_step_2(chapter_outline, previous_scene_outline, scene_nu
     """
 
     return strip_tabs(prompt)
-
