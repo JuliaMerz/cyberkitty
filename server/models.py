@@ -46,7 +46,6 @@ class Story(Base):
     tags = db.Column(db.JSON, nullable=True, default=None)
 
     modified = db.Column(db.Boolean, default=False)
-    invalidated = db.Column(db.Boolean, default=False)
 
     created_on = db.Column(db.DateTime, server_default=db.func.now())
     updated_on = db.Column(

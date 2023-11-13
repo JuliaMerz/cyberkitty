@@ -1,13 +1,14 @@
 
 from collections.abc import Generator
+from fastapi import HTTPException
+from sqlmodel import Session
 from server.models import User, Story, StoryOutline, ChapterOutline, SceneOutline, Scene, Query, ApiCall
 from server import formats
 from server import prompt_generator
-from server.database import db_session
 from server.openai import query_executor
 
 
-def generate_story(story: Story) -> Story:
+def generate_story(story: Story, db_session: Session) -> Story:
     """
     Generate a new story, filling in the setting, main character, and summary fields of a model.
 
@@ -32,7 +33,10 @@ def generate_story(story: Story) -> Story:
     story.main_characters = d['main_characters']
     story.summary = d['summary']
 
-    outline = StoryOutline(story=story, author=story.author)
+
+    if story.id is None:
+        raise HTTPException(status_code=500, detail="Story must be saved before generating outline.")
+    outline = StoryOutline(story_id=story.id, author_id=story.author_id)
 
     db_session.add(story)
 
@@ -41,7 +45,7 @@ def generate_story(story: Story) -> Story:
     return story
 
 
-def generate_story_outline(story_outline: StoryOutline) -> Generator[str | StoryOutline, None, None]:
+def generate_story_outline(story_outline: StoryOutline, db_session: Session) -> Generator[str | StoryOutline, None, None]:
     """
     Algorithm:
 
@@ -140,7 +144,7 @@ def generate_story_outline(story_outline: StoryOutline) -> Generator[str | Story
     yield story_outline
 
 
-def generate_chapter_outline(chapter_outline: ChapterOutline) -> Generator[str | ChapterOutline, None, None]:
+def generate_chapter_outline(chapter_outline: ChapterOutline, db_session: Session) -> Generator[str | ChapterOutline, None, None]:
 
     story_outline = chapter_outline.story_outline
     story = story_outline.story
@@ -199,7 +203,7 @@ def generate_chapter_outline(chapter_outline: ChapterOutline) -> Generator[str |
         db_session.add(scene_outline)
 
 
-def generate_scene_outline(scene_outline: SceneOutline) -> Generator[str | SceneOutline, None, None]:
+def generate_scene_outline(scene_outline: SceneOutline, db_session: Session) -> Generator[str | SceneOutline, None, None]:
 
     chapter_outline = scene_outline.chapter_outline
     story_outline = chapter_outline.story_outline
@@ -262,7 +266,7 @@ def generate_scene_outline(scene_outline: SceneOutline) -> Generator[str | Scene
     yield generate_scene_stub(story, scene_outline)
 
 
-def generate_scene_stub(story, scene_outline):
+def generate_scene_stub(story, scene_outline, db_session: Session):
 
     # Step 3: Generate scene stub
 
@@ -276,7 +280,7 @@ def generate_scene_stub(story, scene_outline):
     return scene_outline
 
 
-def generate_scene_text(scene: Scene) -> Generator[str | Scene, None, None]:
+def generate_scene_text(scene: Scene, db_session: Session) -> Generator[str | Scene, None, None]:
 
     scene_outline = scene.scene_outline
     chapter_outline = scene_outline.chapter_outline

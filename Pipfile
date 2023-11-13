@@ -5,12 +5,15 @@ name = "pypi"
 
 [packages]
 openai = "*"
-flask = "*"
-flask-sqlalchemy = "*"
 backoff = "*"
 pydantic = "*"
-flask-restx = "*"
 sqlmodel = "*"
+fastapi = "*"
+python-dotenv = "*"
+uvicorn = "*"
+python-jose = "*"
+passlib = "*"
+python-multipart = "*"
 
 [dev-packages]
 autopep8 = "*"

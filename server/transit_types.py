@@ -139,7 +139,7 @@ class UpdateScene(BaseModel):
     improved: str | None
 
 
-class Scene(BaseModel):
+class GetScene(UpdateScene):
     model_config = ConfigDict(from_attributes=True)
 
     author_id: int | None

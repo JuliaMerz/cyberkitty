@@ -3,8 +3,11 @@ import openai
 from openai import OpenAI
 from server.models import User, Query, ApiCall
 from server.utils import calc_cost
+from server.config import get_settings
 
-client = OpenAI()
+conf = get_settings()
+
+client = OpenAI(api_key=conf.OPENAI_API_KEY)
 
 
 CONTINUE_PROMPT = "Your last message got cutoff, without repeating yourself, please continue writing exactly where you left off."
