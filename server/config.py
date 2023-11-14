@@ -2,19 +2,25 @@ from pydantic import BaseSettings
 from typing import Literal
 from functools import lru_cache
 import os
-from dotenv import load_dotenv
+from dotenv import dotenv_values
 
-# Load environment variables from .env file
-load_dotenv()
+
+
+config = {
+    **dotenv_values(".env.development"),  # load shared development variables
+    **dotenv_values(".env.production"),  # load sensitive variables
+    **dotenv_values(".env"),  # load sensitive variables
+    **os.environ,  # override loaded values with environment variables
+}
 
 class Settings(BaseSettings):
-    PROJECT_NAME: str = os.getenv('PROJECT_NAME', 'GPT-4 Story Generator')
-    SECRET_KEY: str | None = os.getenv('SECRET_KEY')
-    OPENAI_API_KEY: str  | None= os.getenv('OPENAI_API_KEY')
-    ENVIRONMENT: str = os.getenv('ENVIRONMENT', 'development')
-    DATABASE_URL: str = os.getenv('DATABASE_URL', 'sqlite:///./test.db')
-    DATABASE_USERNAME: str = os.getenv('DATABASE_USERNAME', '')
-    DATABASE_PASSWORD: str = os.getenv('DATABASE_PASSWORD', '')
+    PROJECT_NAME: str = config.get('PROJECT_NAME', 'GPT-4 Story Generator')
+    SECRET_KEY: str | None = config.get('SECRET_KEY')
+    OPENAI_API_KEY: str  | None= config.get('OPENAI_API_KEY')
+    ENVIRONMENT: str = config.get('ENVIRONMENT', 'development')
+    DATABASE_URL: str = config.get('DATABASE_URL', 'sqlite:///./test.db')
+    DATABASE_USERNAME: str = config.get('DATABASE_USERNAME', '')
+    DATABASE_PASSWORD: str = config.get('DATABASE_PASSWORD', '')
 
 @lru_cache()
 def get_settings():

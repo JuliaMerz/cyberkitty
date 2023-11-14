@@ -1,9 +1,9 @@
 import backoff
 import openai
 from openai import OpenAI
-from server.models import User, Query, ApiCall
-from server.utils import calc_cost
-from server.config import get_settings
+from .models import User, Query, ApiCall
+from .utils import calc_cost
+from .config import get_settings
 
 conf = get_settings()
 

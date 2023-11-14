@@ -1,4 +1,3 @@
-from __future__ import annotations
 
 from sqlmodel import SQLModel, Field, Relationship
 from .base import BaseSQLModel
@@ -60,7 +59,7 @@ class Query(QueryBase, table=True):
 
     # Relationships
     author: "User" = Relationship(back_populates="queries")
-    api_calls: List[ApiCall] = Relationship(back_populates="query")
+    api_calls: List["ApiCall"] = Relationship(back_populates="query")
 
 class QueryRead(QueryBase):
     id: int = Field(primary_key=True)
@@ -110,3 +109,8 @@ class ApiCallRead(ApiCallBase):
 
     #add gens
     input_messages: List[Message] = Field()
+
+Query.update_forward_refs()
+ApiCall.update_forward_refs()
+ApiCallRead.update_forward_refs()
+QueryRead.update_forward_refs()

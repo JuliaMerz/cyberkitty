@@ -1,30 +1,37 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from typing import cast, Annotated
-from sqlmodel import Session
-from server.models import Story, StoryOutline, User, Query, ApiCall, ChapterOutline, SceneOutline, Scene
-from server.database import get_db_session
-from server.dependencies import GetDbObject
-from server.auth_config import get_current_user
+from sqlmodel import Session, Field
+from ..models import StoryBase, StoryOutlineBase, User, QueryBase, ApiCallBase, ChapterOutlineBase, SceneOutlineBase, SceneBase, Story, StoryOutline, Query, ApiCall, ChapterOutline, SceneOutline, Scene, StoryRead, StoryReadRecursive, StoryOutlineRead, QueryRead, ChapterOutlineRead, SceneOutlineRead, SceneRead
+from ..database import get_db_session
+from ..dependencies import GetDbObject
+from ..auth_config import get_current_user
 
 router = APIRouter()
 
 """
 Story
 """
-@router.post("/story/", response_model=Story)
-def create_story(story: Story, session: Session = Depends(get_db_session), current_user: User = Depends(get_current_user)):
+@router.post("/story/", response_model=StoryBase)
+def create_story(story: StoryBase, session: Session = Depends(get_db_session), current_user: User = Depends(get_current_user)):
     story.author_id = cast(int, current_user.id)
     session.add(story)
     session.commit()
     session.refresh(story)
     return story
 
-@router.get("/story/{obj_id}", response_model=Story)
+@router.get("/story/{obj_id}", response_model=StoryRead)
 def read_story(obj_id: int, story: Annotated[Story, Depends(GetDbObject(will_mutate=False, model=Story))]):
     return story
 
-@router.put("/story/{obj_id}", response_model=Story)
-def update_story(obj_id: int, story_update: Story, session: Session = Depends(get_db_session), story: Story = Depends(GetDbObject(True, model=Story))):
+@router.get("/story/{obj_id}/recursive", response_model=StoryReadRecursive)
+def read_story_recursive(obj_id: int, story: Annotated[Story, Depends(GetDbObject(will_mutate=False, model=Story))]):
+    return story
+
+class StoryUpdate(StoryBase):
+    id: int
+
+@router.put("/story/{obj_id}", response_model=StoryBase)
+def update_story(obj_id: int, story_update: StoryUpdate, session: Session = Depends(get_db_session), story: Story = Depends(GetDbObject(True, model=Story))):
     story_data = story_update.dict(exclude_unset=True)
     for key, value in story_data.items():
         setattr(story, key, value)
@@ -38,12 +45,15 @@ def update_story(obj_id: int, story_update: Story, session: Session = Depends(ge
 Story Outline
 """
 
-@router.get("/story-outline/{obj_id}", response_model=StoryOutline)
+@router.get("/story-outline/{obj_id}", response_model=StoryOutlineRead)
 def read_story_outline(obj_id: int, story_outline: StoryOutline = Depends(GetDbObject(False, model=StoryOutline))):
     return story_outline
 
-@router.put("/story-outline/{obj_id}", response_model=StoryOutline)
-def update_story_outline(obj_id: int, story_outline_update: StoryOutline, session: Session = Depends(get_db_session), story_outline: StoryOutline = Depends(GetDbObject(True, model=StoryOutline))):
+class StoryOutlineUpdate(StoryOutlineBase):
+    id: int
+
+@router.put("/story-outline/{obj_id}", response_model=StoryOutlineRead)
+def update_story_outline(obj_id: int, story_outline_update: StoryOutlineUpdate, session: Session = Depends(get_db_session), story_outline: StoryOutline = Depends(GetDbObject(True, model=StoryOutline))):
     story_outline_data = story_outline_update.dict(exclude_unset=True)
     for key, value in story_outline_data.items():
         setattr(story_outline, key, value)
@@ -57,12 +67,15 @@ def update_story_outline(obj_id: int, story_outline_update: StoryOutline, sessio
 Chapter Outline
 """
 
-@router.get("/chapter-outline/{obj_id}", response_model=ChapterOutline)
+@router.get("/chapter-outline/{obj_id}", response_model=ChapterOutlineRead)
 def read_chapter_outline(obj_id: int, chapter_outline: ChapterOutline = Depends(GetDbObject(False, model=ChapterOutline))):
     return chapter_outline
 
-@router.put("/chapter-outline/{obj_id}", response_model=ChapterOutline)
-def update_chapter_outline(obj_id: int, chapter_outline_update: ChapterOutline, session: Session = Depends(get_db_session), chapter_outline: ChapterOutline = Depends(GetDbObject(True, model=ChapterOutline))):
+class ChapterOutlineUpdate(ChapterOutlineBase):
+    id: int
+
+@router.put("/chapter-outline/{obj_id}", response_model=ChapterOutlineRead)
+def update_chapter_outline(obj_id: int, chapter_outline_update: ChapterOutlineUpdate, session: Session = Depends(get_db_session), chapter_outline: ChapterOutline = Depends(GetDbObject(True, model=ChapterOutline))):
     chapter_outline_data = chapter_outline_update.dict(exclude_unset=True)
     for key, value in chapter_outline_data.items():
         setattr(chapter_outline, key, value)
@@ -75,13 +88,15 @@ def update_chapter_outline(obj_id: int, chapter_outline_update: ChapterOutline, 
 """
 Scene Outline
 """
-@router.get("/scene-outline/{obj_id}", response_model=SceneOutline)
+@router.get("/scene-outline/{obj_id}", response_model=SceneOutlineRead)
 def read_scene_outline(obj_id: int, scene_outline: SceneOutline = Depends(GetDbObject(False, model=SceneOutline))):
     return scene_outline
 
+class SceneOutlineUpdate(SceneOutlineBase):
+    id: int
 
-@router.put("/scene-outline/{obj_id}", response_model=SceneOutline)
-def update_scene_outline(obj_id: int, scene_outline_update: SceneOutline, session: Session = Depends(get_db_session), scene_outline: SceneOutline = Depends(GetDbObject(True, model=SceneOutline))):
+@router.put("/scene-outline/{obj_id}", response_model=SceneOutlineRead)
+def update_scene_outline(obj_id: int, scene_outline_update: SceneOutlineUpdate, session: Session = Depends(get_db_session), scene_outline: SceneOutline = Depends(GetDbObject(True, model=SceneOutline))):
     scene_outline_data = scene_outline_update.dict(exclude_unset=True)
     for key, value in scene_outline_data.items():
         setattr(scene_outline, key, value)
@@ -95,12 +110,15 @@ def update_scene_outline(obj_id: int, scene_outline_update: SceneOutline, sessio
 Scene
 """
 
-@router.get("/scene/{obj_id}", response_model=Scene)
+@router.get("/scene/{obj_id}", response_model=SceneRead)
 def read_scene(obj_id: int, scene: Scene = Depends(GetDbObject(False, model=Scene))):
     return scene
 
-@router.put("/scene/{obj_id}", response_model=Scene)
-def update_scene(obj_id: int, scene_update: Scene, session: Session = Depends(get_db_session), scene: Scene = Depends(GetDbObject(True, model=Scene))):
+class SceneUpdate(SceneBase):
+    id: int
+
+@router.put("/scene/{obj_id}", response_model=SceneRead)
+def update_scene(obj_id: int, scene_update: SceneUpdate, session: Session = Depends(get_db_session), scene: Scene = Depends(GetDbObject(True, model=Scene))):
     scene_data = scene_update.dict(exclude_unset=True)
     for key, value in scene_data.items():
         setattr(scene, key, value)

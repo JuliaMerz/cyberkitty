@@ -1,6 +1,6 @@
 import re
 from typing import TypedDict
-from server.error import ParsingError
+from .error import ParsingError
 
 
 # Everything except story base MUST be split before it is parsed.

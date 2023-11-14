@@ -1,13 +1,12 @@
 from sqlmodel import Field, Session, SQLModel, create_engine, select
 
-from server.config import get_settings
+from .config import get_settings
 
 
 conf = get_settings()
 
 engine = create_engine(
     conf.DATABASE_URL, connect_args={"check_same_thread": False}
-
 )
 
 

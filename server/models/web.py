@@ -21,6 +21,9 @@ class User(BaseSQLModel, table=True):
     name: str = Field(sa_column_kwargs={"unique": True}, max_length=50)
     email: str = Field(sa_column_kwargs={"unique": True}, max_length=120)
 
+    hashed_password: str = Field(sa_column_kwargs={"nullable": False})
+    superuser: bool = Field(default=False)
+
     tokens: float = Field(default=0.0)
 
     created_on: datetime = Field(default_factory=datetime.now)
@@ -38,3 +41,7 @@ class User(BaseSQLModel, table=True):
 
     def __repr__(self):
         return f'<User {self.name}>'
+
+User.update_forward_refs()
+
+Query.update_forward_refs()

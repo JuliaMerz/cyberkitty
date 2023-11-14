@@ -2,10 +2,10 @@
 from collections.abc import Generator
 from fastapi import HTTPException
 from sqlmodel import Session
-from server.models import User, Story, StoryOutline, ChapterOutline, SceneOutline, Scene, Query, ApiCall
-from server import formats
-from server import prompt_generator
-from server.openai import query_executor
+from .models import User, Story, StoryOutline, ChapterOutline, SceneOutline, Scene, Query, ApiCall
+from . import formats
+from . import prompt_generator
+from .openai import query_executor
 
 
 def generate_story(story: Story, db_session: Session) -> Story:
@@ -16,7 +16,7 @@ def generate_story(story: Story, db_session: Session) -> Story:
     """
 
     sys_prompt = prompt_generator.generate_system_instruction(
-        story.description, story.style, story.themes)
+        story.description, story.style, story.themes, story.request)
     story_prompt = prompt_generator.generate_story_base()
 
     query_result = query_executor(sys_prompt, story_prompt, story.author)
@@ -54,7 +54,7 @@ def generate_story_outline(story_outline: StoryOutline, db_session: Session) -> 
     """
     story = story_outline.story
     sys_prompt = prompt_generator.generate_system_instruction(
-        story.description, story.style, story.themes,
+        story.description, story.style, story.themes, story.request,
         setting=story.setting, main_characters=story.main_characters, summary=story.summary)
 
     # Step 1: Generate one-sentence outline
@@ -149,7 +149,7 @@ def generate_chapter_outline(chapter_outline: ChapterOutline, db_session: Sessio
     story_outline = chapter_outline.story_outline
     story = story_outline.story
     sys_prompt = prompt_generator.generate_system_instruction(
-        story.description, story.style, story.themes,
+        story.description, story.style, story.themes, story.request,
         setting=story.setting, main_characters=story.main_characters, summary=story.summary, outline=story_outline.outline_paragraphs, fact_sheet=story_outline.fact_sheet, characters=story_outline.characters)
 
     # Step 1: Generate a raw outline
@@ -210,7 +210,7 @@ def generate_scene_outline(scene_outline: SceneOutline, db_session: Session) -> 
     story = story_outline.story
 
     sys_prompt = prompt_generator.generate_system_instruction(
-        story.description, story.style, story.themes,
+        story.description, story.style, story.themes, story.request,
         setting=story.setting, main_characters=story.main_characters, summary=story.summary, outline=story_outline.outline_paragraphs, fact_sheet=story_outline.fact_sheet, characters=story_outline.characters)
 
     # Step 1: Generate a raw outline
@@ -288,7 +288,7 @@ def generate_scene_text(scene: Scene, db_session: Session) -> Generator[str | Sc
     story = story_outline.story
 
     sys_prompt = prompt_generator.generate_system_instruction(
-        story.description, story.style, story.themes,
+        story.description, story.style, story.themes, story.request,
         setting=story.setting, main_characters=story.main_characters, summary=story.summary, outline=story_outline.outline_paragraphs, fact_sheet=story_outline.fact_sheet, characters=story_outline.characters)
 
     previous_scene_outlines = chapter_outline.scene_outlines.order_by(

@@ -14,6 +14,10 @@ uvicorn = "*"
 python-jose = "*"
 passlib = "*"
 python-multipart = "*"
+alembic = "*"
+pydantic-to-typescript = "*"
+fastapi-jwt-auth = "*"
+sqlalchemy = "*"
 
 [dev-packages]
 autopep8 = "*"

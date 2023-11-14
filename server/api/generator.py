@@ -2,10 +2,10 @@ from fastapi import Depends, HTTPException, status, APIRouter
 from sqlmodel import Session, select
 from fastapi.responses import StreamingResponse
 
-from server.models import Story, StoryOutline, ChapterOutline, SceneOutline, Scene, Query, ApiCall
-from server import generator
-from server.dependencies import GetDbObject
-from server.database import get_db_session
+from ..models import Story, StoryOutline, ChapterOutline, SceneOutline, Scene, Query, ApiCall
+from . import generator
+from ..dependencies import GetDbObject
+from ..database import get_db_session
 
 
 router = APIRouter()

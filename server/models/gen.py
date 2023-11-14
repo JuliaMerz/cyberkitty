@@ -1,7 +1,6 @@
-from __future__ import annotations
 
 from sqlmodel import SQLModel, Field, Relationship
-from server import formats
+from .. import formats
 import json
 from .web import User
 from .base import BaseSQLModel
@@ -17,6 +16,7 @@ class StoryBase(BaseSQLModel):
     description: str = Field()
     style: str = Field()
     themes: str = Field()
+    request: str = Field()
 
     # GPT Generated
     setting: Optional[str] = Field(default=None)
@@ -51,13 +51,13 @@ class Story(StoryBase, table=True):
     story_outlines: List["StoryOutline"] = Relationship(back_populates="story")
 
     @property
-    def current_story_outline(self):
-        out =  [x for x in filter(lambda x: not x.invalidated, self.story_outlines)]
+    def current_story_outline(self) -> Optional["StoryOutlineRead"]:
+        out =  [StoryOutlineRead.from_orm(x) for x in filter(lambda x: not x.invalidated, self.story_outlines)]
         return out[0] if len(out)>0 else None
 
     @property
-    def all_story_outlines(self):
-        return self.story_outlines
+    def all_story_outlines(self) -> List["StoryOutlineRead"]:
+        return [StoryOutlineRead.from_orm(x) for x in self.story_outlines]
 
 
     def __repr__(self):
@@ -74,11 +74,12 @@ class StoryRead(StoryBase):
 
     # Relationships
     author: User = Field()
-    all_story_outines: List["StoryOutlineRead"] = Field()
-    current_story_outline: Union["StoryOutlineRead",None] = Field()
+    all_story_outlines: List["StoryOutlineRead"] = Field()
+    current_story_outline: Optional["StoryOutlineRead"] = Field()
 
 class StoryReadRecursive(StoryBase):
     current_story_outline: Union["StoryOutlineReadRecursive",None] = Field()
+
 
 
 
@@ -133,7 +134,7 @@ class StoryOutline(StoryOutlineBase, table=True):
     # Relationships
     author: User = Relationship(back_populates="story_outlines")
     story: Story = Relationship(back_populates="story_outlines")
-    chapter_outlines: List["SceneOutline"] = Relationship(
+    chapter_outlines: List["ChapterOutline"] = Relationship(
         back_populates="story_outline")
 
     @property
@@ -175,8 +176,9 @@ class ChapterOutlineBase(BaseSQLModel):
     author_id: int = Field(foreign_key="users.id")
     story_outline_id: int = Field(
         foreign_key="story_outlines.id")
+
     previous_chapter_id: Optional[int] = Field(
-        default=None, foreign_key="chapter_outlines.id")
+        default=None, unique=True, foreign_key="chapter_outlines.id")
 
     chapter_number: int = Field()
     title: str = Field(max_length=150)
@@ -229,9 +231,16 @@ class ChapterOutline(ChapterOutlineBase, table=True):
     def all_scene_outlines(self):
         return self.scene_outlines
 
-    previous_chapter: Optional[ChapterOutline] = Relationship(
-        back_populates="next_chapter")
-    next_chapter: Optional[ChapterOutline] = Relationship(
+    # workaround for sqlalchemy being a dick about one-to-one self references
+    @property
+    def next_chapter(self) -> Optional["ChapterOutline"]:
+        out = [x for x in filter(lambda x: not x.invalidated, self.next_chapters)]
+        return out[0] if len(out)>0 else None
+
+    previous_chapter: Optional["ChapterOutline"] = Relationship(
+        back_populates="next_chapters")
+    next_chapters: List["ChapterOutline"] = Relationship(
+        sa_relationship_kwargs={"remote_side": "ChapterOutline.id", "foreign_keys": "[ChapterOutline.previous_chapter_id]", "uselist": False},
         back_populates="previous_chapter")
 
 class ChapterOutlineRead(ChapterOutlineBase):
@@ -317,10 +326,18 @@ class SceneOutline(SceneOutlineBase, table=True):
     def all_scenes(self):
         return self.scenes
 
-    previous_scene_outline: Optional[SceneOutline] = Relationship(
-        back_populates="next_scene")
-    next_scene_outline: Optional[SceneOutline] = Relationship(
-        back_populates="previous_scene")
+    # workaround for sqlalchemy being a dick about one-to-one self references
+    @property
+    def next_scene_outline(self) -> Optional["SceneOutline"]:
+        out = [x for x in filter(lambda x: not x.invalidated, self.next_scene_outlines)]
+        return out[0] if len(out)>0 else None
+
+    previous_scene_outline: Optional["SceneOutline"] = Relationship(
+        back_populates="next_scene_outlines")
+    next_scene_outlines: List["SceneOutline"] = Relationship(
+        sa_relationship_kwargs={"remote_side": "SceneOutline.id", "foreign_keys": "[SceneOutline.previous_scene_id]", "uselist": False},
+        back_populates="previous_scene_outline")
+
 
 class SceneOutlineRead(SceneOutlineBase):
     id: int = Field()
@@ -403,10 +420,18 @@ class Scene(SceneBase, table=True):
     author: "User" = Relationship(back_populates="scenes")
     scene_outline: "SceneOutline" = Relationship(back_populates="scenes")
 
+    # workaround for sqlalchemy being a dick about one-to-one self references
+    @property
+    def next_scene(self) -> Optional["Scene"]:
+        out = [x for x in filter(lambda x: not x.invalidated, self.next_scenes)]
+        return out[0] if len(out)>0 else None
+
     previous_scene: Optional["Scene"] = Relationship(
-        back_populates="next_scene")
-    next_scene: Optional["Scene"] = Relationship(
+        back_populates="next_scenes")
+    next_scenes: List["Scene"] = Relationship(
+        sa_relationship_kwargs={"remote_side": "Scene.id", "foreign_keys": "[Scene.previous_scene_id]", "uselist": False},
         back_populates="previous_scene")
+
 
 class SceneRead(SceneBase):
     id: int = Field()
@@ -429,3 +454,19 @@ class SceneRead(SceneBase):
     previous_scene: Optional["SceneRead"] = Field()
     next_scene: Optional["SceneRead"] = Field()
 
+
+Story.update_forward_refs()
+StoryOutline.update_forward_refs()
+ChapterOutline.update_forward_refs()
+SceneOutline.update_forward_refs()
+Scene.update_forward_refs()
+
+StoryRead.update_forward_refs()
+StoryReadRecursive.update_forward_refs()
+StoryOutlineRead.update_forward_refs()
+StoryOutlineReadRecursive.update_forward_refs()
+ChapterOutlineRead.update_forward_refs()
+ChapterOutlineReadRecursive.update_forward_refs()
+SceneOutlineRead.update_forward_refs()
+SceneOutlineReadRecursive.update_forward_refs()
+SceneRead.update_forward_refs()

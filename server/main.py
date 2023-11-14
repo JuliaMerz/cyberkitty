@@ -1,11 +1,39 @@
-from fastapi import FastAPI
-from server.api import router as api_router
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+from fastapi_jwt_auth.exceptions import AuthJWTException
+from .api import router as api_router
 from fastapi.security import OAuth2PasswordBearer
-from server.config import get_settings
-from server.auth_config import router as auth_router
+from .config import get_settings
+from .auth_config import router as auth_router
+from fastapi.middleware.cors import CORSMiddleware
+
 
 settings = get_settings()
 app = FastAPI(title=settings.PROJECT_NAME)
+
+origins = [
+    "http://localhost:3000",
+    "http://localhost:3001",
+    "http://localhost:3002",
+    "http://localhost",
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+@app.exception_handler(AuthJWTException)
+def authjwt_exception_handler(request: Request, exc: AuthJWTException):
+    # see https://github.com/IndominusByte/fastapi-jwt-auth/issues/97
+    return JSONResponse(
+        status_code=exc.status_code, # type: ignore
+        content={"detail": exc.message} # type: ignore
+    )
+
 
 
 # Include routers
