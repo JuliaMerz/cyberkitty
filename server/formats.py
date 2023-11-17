@@ -165,6 +165,7 @@ def parse_story_outline_medium(string) -> MediumOutlineParsed:
     """
     chapter_pattern = r"""
         (?:\#\#\s(?P<part_label>Part\s.*?)\n)?
+        (?:.*?) #this compensates for editing notes or other garbage. Min so it doens't eat content.
         \#\#\#\sChapter\s(?P<chap_num>\d+)
         (?:\s*—\s*(?P<title>.*?))?
         \n
@@ -248,6 +249,7 @@ def parse_story_outline_complex(string) -> ComplexOutlineParsed:
     """
     chapter_pattern = r"""
         (?:\#\#\s(?P<part_label>Part\s.*?)\n)?
+        (?:.*?) #this compensates for editing notes or other garbage. Min so it doens't eat content.
         \#\#\#\sChapter\s(?P<chap_num>\d+)
         (?:\s*—\s*(?P<title>.*?))?
         \n
