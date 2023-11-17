@@ -21,6 +21,14 @@ class Settings(BaseSettings):
     DATABASE_URL: str = config.get('DATABASE_URL', 'sqlite:///./test.db')
     DATABASE_USERNAME: str = config.get('DATABASE_USERNAME', '')
     DATABASE_PASSWORD: str = config.get('DATABASE_PASSWORD', '')
+    DOMAIN_ROOT: str = config.get('DOMAIN_ROOT', 'http://localhost:8000')
+    # TWILIO_ACCOUNT_SID: str = config.get('TWILIO_ACCOUNT_SID', '')
+    # TWILIO_AUTH_TOKEN: str = config.get('TWILIO_AUTH_TOKEN', '')
+    # TWILIO_VERIFY_SERVICE: str = config.get('TWILIO_VERIFY_SERVICE', '')
+    SENDGRID_API_KEY: str = config.get('SENDGRID_API_KEY', '')
+    VERIFICATION_EMAIL_TEMPLATE_ID: str = config.get('VERIFICATION_EMAIL_TEMPLATE_ID', '')
+    EMAIL_FROM: str = config.get('EMAIL_FROM', '')
+
 
 @lru_cache()
 def get_settings():

@@ -1,16 +1,12 @@
 import React from 'react';
+import cyberKitty from '../assets/cyberkitty-nb-small.png';
 
 const Title: React.FC = () => {
   return (
-    <div>
+    <div className="logo"><img className="logo" src={cyberKitty} />
       <h1>
-        <b>J</b>ulia <b>Merz</b>
+        CyberKitty
       </h1>
-      <div className="links">
-        <a href="/">Technology</a>
-        <a about="_blank" href="https://sinsua.is">Music</a>
-        <a about="_blank" href="https://tsukinoneko.ink">Writing</a>
-      </div>
     </div>
   );
 };

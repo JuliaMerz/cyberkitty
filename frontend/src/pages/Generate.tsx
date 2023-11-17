@@ -1,9 +1,13 @@
 import React from 'react';
+import Story from '../components/Story';
+import {useParams} from 'react-router-dom';
 
-const Generate: React.FC = (props) => {
+
+const Generate: React.FC = () => {
+  const {storyId} = useParams();
   return (
     <div>
-      <h1>Generate</h1>
+      {storyId !== undefined ? (<Story storyId={parseInt(storyId)} />) : "please select a story"}
     </div>
   );
 }

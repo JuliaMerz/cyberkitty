@@ -6,7 +6,7 @@ from .auth_config import get_current_user, get_current_user_or_none
 from .database import engine, get_db_session
 
 AuthorTypes = Story | Scene | SceneOutline | ChapterOutline | StoryOutline | Query
-QueryableTypes = AuthorTypes | User | ApiCall
+QueryableTypes = AuthorTypes | User
 
 
 class GetDbObject():
@@ -21,6 +21,7 @@ class GetDbObject():
                  session: Annotated[Session, Depends(get_db_session)],
                  current_user: Annotated[User|None, Depends(get_current_user_or_none)]):
 
+        print("Attempting fetch", self.model, obj_id)
         obj = session.get(self.model, obj_id)
 
         if not obj:
@@ -28,13 +29,13 @@ class GetDbObject():
                                 detail="Resource not found")
 
         # it it's public and we don't intend to mutate it, we can return it
-        if self.will_mutate and obj.is_public == False:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
-                                detail="Not authorized to access this resource")
+        if (not self.will_mutate) and obj.is_public:
+            return obj
 
-        # not public so check authorship or mutable
+        # not public or we mutate so check authorship or mutable
+        # print('current_user', current_user, obj)
         # ignoring type because we check for the None case and python shortcircuits
-        if current_user == None or current_user.id != obj.author_id:  # type: ignore
+        if current_user == None or (self.model != User and current_user.id != obj.author_id): #type: ignore
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
                                 detail="Not authorized to access this resource")
 

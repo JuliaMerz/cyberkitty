@@ -1,7 +1,14 @@
 import React, {useState, useEffect} from 'react';
-import axios from 'axios';
-import {createParser, type ParsedEvent, type ReconnectInterval} from 'eventsource-parser';
+import ModifiableMarkdown from './ModifiableMarkdown'; // Assuming you have a LoadingComponent
+import {Link} from 'react-router-dom';
 import {StoryRead} from '../apiTypes'; // Import the Story type
+import {PartialEvent, ParsedEvent, ReconnectInterval} from '../utils/eventTypes';
+import {createParser, streamAsyncIterator} from '../utils/parseStream';
+import {VscDebug} from "react-icons/vsc";
+import LoadingComponent from './LoadingComponent';
+import StoryOutline from './StoryOutline';
+import Markdown from 'react-markdown';
+import {parseGenerator} from '../utils/parseGenerator';
 
 type StoryProps = {
   storyId: number;
@@ -9,13 +16,18 @@ type StoryProps = {
 
 const Story: React.FC<StoryProps> = ({storyId}) => {
   const [story, setStory] = useState<StoryRead | null>(null);
+  const [response, setResponse] = useState<Response | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
+  const [chunks, setChunks] = useState<[string, string][]>([['', '']]);
   const [error, setError] = useState<string>('');
 
+
+  const apiUrl = process.env.REACT_APP_API_URL;
   const fetchStory = async () => {
     try {
-      const response = await axios.get<StoryRead>(`http://localhost:8000/story/${storyId}`);
-      setStory(response.data);
+      const response = await fetch(`${apiUrl}/apiv1/data/story/${storyId}`);
+
+      setStory(await response.json());
       setLoading(false);
     } catch (err) {
       setError('Failed to fetch story');
@@ -24,59 +36,125 @@ const Story: React.FC<StoryProps> = ({storyId}) => {
   };
 
   const generateStory = async () => {
+    if (loading) {
+      return;
+    }
     setLoading(true);
     try {
-      const response = await axios.get(`http://localhost:8000/generate/story/${storyId}`, {
-        responseType: 'stream'
-      });
 
-      const parser = createParser((event: ParsedEvent | ReconnectInterval) => {
-        if (event.type === 'event') {
-          // Parse the event and update the state
-          const parsedData = JSON.parse(event.data);
-          setStory(parsedData);  // Assuming the data structure matches StoryRead
-        }
-      });
+      await parseGenerator(`${apiUrl}/apiv1/generator/story/${storyId}`,
+        (chunks: [string, string][]) => setChunks(chunks),
+        (parsedData: StoryRead) => setStory(parsedData));
 
-      for await (const chunk of response.data) {
-        parser.feed(chunk);
-      }
+      //Compensate for SQLAlchemy limitations
+
+
     } catch (err) {
+      console.log("Fgen failure: ", err);
       setError('Failed to generate story');
     } finally {
+      console.log("Finally");
+      await fetchStory();
       setLoading(false);
     }
   };
 
+  const fieldUpdater = (field: string, generated: boolean) => {
+    return (value: string,) => {
+      if (!story) return;
+      if (generated) {
+        setStory({
+          ...story,
+          [field]: value,
+          modified_generated: true,
+        });
+        return;
+      }
+      setStory({
+        ...story,
+        [field]: value,
+        modified: true,
+      });
+    };
+  };
+
+  const updateStoryCallback = async () => {
+    if (story) {
+      const response = await fetch(`${apiUrl}/apiv1/data/story/${storyId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(story)
+      });
+      if (response.status !== 200) {
+        throw new Error('Error updating story');
+      }
+      const data = await response.json();
+      setStory((prev: any) => ({
+        ...prev,
+        ...data
+      }));
+      return Promise.resolve();
+    }
+  }
+
+
+  function renderGenerated() {
+    if (loading) {
+      return (
+        <LoadingComponent chunks={chunks} />
+      );
+    }
+
+    return (<>
+
+      <h6>Setting:</h6>
+      <ModifiableMarkdown editCallback={fieldUpdater('setting', true)} saveCallback={updateStoryCallback}>{story?.setting}</ModifiableMarkdown>
+      <h6>Main Characters:</h6>
+      <ModifiableMarkdown editCallback={fieldUpdater('main_characters', true)} saveCallback={updateStoryCallback}>{story?.main_characters}</ModifiableMarkdown>
+      <h6>Summary:</h6>
+      <ModifiableMarkdown editCallback={fieldUpdater('summary', true)} saveCallback={updateStoryCallback}>{story?.summary}</ModifiableMarkdown>
+      {story?.modified_generated ? <div className="modified-notice"><span>Modified... (consider regenerating)</span></div> : null}
+
+    </>);
+
+
+
+  }
   useEffect(() => {
     fetchStory();
   }, [storyId]);
 
-  if (loading) return <p>Loading...</p>;
-  if (error) return <p>Error: {error}</p>;
-
+  console.log(story?.current_story_outline);
   return (
     <div>
       <>
-        <h1>{story?.title}</h1>
-        <p><strong>Description:</strong> {story?.description}</p>
-        <p><strong>Style:</strong> {story?.style}</p>
-        <p><strong>Themes:</strong> {story?.themes}</p>
-        <p><strong>Setting:</strong> {story?.setting}</p>
-        <p><strong>Main Characters:</strong> {story?.main_characters}</p>
-        <p><strong>Summary:</strong> {story?.summary}</p>
-        <p><strong>Author ID:</strong> {story?.author_id}</p>
-        <p><strong>Is Public:</strong> {story?.is_public ? 'Yes' : 'No'}</p>
-        <p><strong>Created On:</strong> {story?.created_on}</p>
-        <p><strong>Updated On:</strong> {story?.updated_on}</p>
+        <h1>{story?.title}<Link to={`/debug/story/${storyId}`}> <VscDebug /> </Link></h1>
+
+        <p><i> {story?.is_public ? 'Public' : 'Private'}</i></p>
+        <h6>Description:</h6>
+        <ModifiableMarkdown editCallback={fieldUpdater('description', false)} saveCallback={updateStoryCallback}>{story?.description}</ModifiableMarkdown>
+        <h6>Style:</h6>
+        <ModifiableMarkdown editCallback={fieldUpdater('style', false)} saveCallback={updateStoryCallback}>{story?.style}</ModifiableMarkdown>
+        <h6>Themes:</h6>
+        <ModifiableMarkdown editCallback={fieldUpdater('themes', false)} saveCallback={updateStoryCallback}>{story?.themes}</ModifiableMarkdown>
+        <h6>Special Requests:</h6>
+        <ModifiableMarkdown editCallback={fieldUpdater('request', false)} saveCallback={updateStoryCallback}>{story?.request}</ModifiableMarkdown>
+        {story?.modified ? <div className="modified-notice"><span>Modified... (consider regenerating)</span></div> : null}
+        <button onClick={generateStory}>Generate</button>
+        {loading ? <p>Loading...</p> : null}
+        {error ? (<p>Error: {error}</p>) : null}
+        {renderGenerated()}
 
         {/* Render the StoryOutline component here, once available */}
-        {story?.current_story_outline && (
-          {/* <StoryOutline outlineId={story.current_story_outline.id} /> */}
-        )}
-
-        <button onClick={generateStory}>Generate</button></>
-    </div>
+        {
+          story?.current_story_outline && (
+            <StoryOutline storyOutlineId={story.current_story_outline.id} />
+          )
+        }
+      </>
+    </div >
   );
 
 };

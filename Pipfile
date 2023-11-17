@@ -18,6 +18,8 @@ alembic = "*"
 pydantic-to-typescript = "*"
 fastapi-jwt-auth = "*"
 sqlalchemy = "*"
+tiktoken = "*"
+sendgrid = "*"
 
 [dev-packages]
 autopep8 = "*"

@@ -54,7 +54,6 @@ def verify_password(plain_password, hashed_password):
 
 
 def get_user(db: Session, email: str) -> User | None:
-    print(db.query(User).all())
     return db.query(User).filter(User.email == email).first()
 
 
@@ -90,7 +89,7 @@ async def get_current_user_or_none(db: Session = Depends(get_db_session),  Autho
     if current_user is None:
         return None
     else:
-        return get_current_user( db, Authorize)
+        return await get_current_user( db, Authorize)
 
 
 async def get_current_user( db: Session = Depends(get_db_session), Authorize: AuthJWT = Depends()) -> User:
@@ -115,7 +114,6 @@ async def get_current_user( db: Session = Depends(get_db_session), Authorize: Au
     #     raise credentials_exception
     # Safe to ignore type here since we validate that email is not none earlier
     user = get_user(db, email=current_user_email)  # type: ignore
-    print(user, current_user_email)
     if user is None:
         raise credentials_exception
     return user
@@ -132,10 +130,13 @@ async def login_for_access_token(
             detail="Incorrect email or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    if user.verified is False:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Email not verified",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    access_token = create_access_token(
-        data={"sub": user.email}, expires_delta=access_token_expires
-    )
     # Use create_access_token() and create_refresh_token() to create our
     # access and refresh tokens
     access_token = Authorize.create_access_token(subject=user.email)
@@ -183,6 +184,7 @@ async def dev_login(db: Session = Depends(get_db_session), Authorize: AuthJWT = 
 
         access_token = Authorize.create_access_token(subject=user.email)
         refresh_token = Authorize.create_refresh_token(subject=user.email)
+        # return {"access_token": "", "refresh_token": ""}
         return {"access_token": access_token, "refresh_token": refresh_token}
 
     else:
