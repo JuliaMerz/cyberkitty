@@ -20,6 +20,7 @@ fastapi-jwt-auth = "*"
 sqlalchemy = "*"
 tiktoken = "*"
 sendgrid = "*"
+psycopg = "*"
 
 [dev-packages]
 autopep8 = "*"
