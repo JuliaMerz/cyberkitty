@@ -81,8 +81,12 @@ const App: React.FC = () => {
   });
 
 
+  const devMode = () => {
+    return process.env.REACT_APP_SERVER_MODE === 'development';
+  }
+
   const fetchToken = async () => {
-    if (process.env.NODE_ENV === 'development') {
+    if (process.env.REACT_APP_SERVER_MODE === 'development') {
       console.log("Dev env, fetching dev token");
       try {
         const response = await fetch(`${process.env.REACT_APP_API_URL}/auth/dev_ping`);
@@ -117,7 +121,8 @@ const App: React.FC = () => {
           </Routes>
         </main>
         <footer className="box footer">
-          A project by <a href="https://jmerz.is">Julia Merz</a>.
+          {devMode() ? <span className="home-notice">This installation is currently in single user ("dev") mode.</span> : null}
+          <span>A project by <a href="https://jmerz.is">Julia Merz</a>.</span>
         </footer>
       </div>
     </Router>

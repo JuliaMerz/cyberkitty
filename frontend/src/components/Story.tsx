@@ -130,7 +130,7 @@ const Story: React.FC<StoryProps> = ({storyId}) => {
   return (
     <div>
       <>
-        <h1>{story?.title}<Link to={`/debug/story/${storyId}`}> <VscDebug /> </Link></h1>
+        <h1>{story ? story.title : "Loading..."}<Link to={`/debug/story/${storyId}`}> <VscDebug /> </Link></h1>
 
         <p><i> {story?.is_public ? 'Public' : 'Private'}</i></p>
         <h6>Description:</h6>

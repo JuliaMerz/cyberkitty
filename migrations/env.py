@@ -9,6 +9,9 @@ from server.models import * # necessarily to import something from file where yo
 from server.config import get_settings
 conf = get_settings()
 
+import dotenv
+dotenv.load_dotenv()
+
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -47,6 +50,9 @@ def run_migrations_offline() -> None:
 
     """
     url = config.get_main_option("sqlalchemy.url")
+
+    # override for local
+    url = "driver://user:pass@localhost/dbname"
     context.configure(
         url=url,
         target_metadata=target_metadata,
@@ -66,20 +72,36 @@ def run_migrations_online() -> None:
     and associate a connection with the context.
 
     """
-    connectable = engine_from_config(
-        config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
-        poolclass=pool.NullPool,
-    )
+
+    from sqlalchemy import create_engine
+    import re
+    import os
+
+    url_tokens = {
+        "DB_DRIVER": os.getenv("DB_DRIVER", ""),
+        "DB_USER": os.getenv("DB_USER", ""),
+        "DB_PASS": os.getenv("DB_PASS", ""),
+        "DB_HOST": os.getenv("DB_HOST", ""),
+        "DB_NAME": os.getenv("DB_NAME", "")
+    }
+
+    url = config.get_main_option("sqlalchemy.url")
+
+    url = re.sub(r"\${(.+?)}", lambda m: url_tokens[m.group(1)], url)
+
+    connectable = create_engine(url)
 
     with connectable.connect() as connection:
         context.configure(
             connection=connection, target_metadata=target_metadata,
+            compare_type=True,
+            compare_server_default=True,
             render_as_batch=True,
         )
 
         with context.begin_transaction():
             context.run_migrations()
+
 
 
 if context.is_offline_mode():

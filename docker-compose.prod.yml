@@ -1,0 +1,93 @@
+version: '3.8'
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Api.Dockerfile
+    expose:
+      - 80
+    # environment:
+    #   - PROJECT_NAME=$PROJECT_NAME
+    #   - SECRET_KEY=$SECRET_KEY
+    #   - OPENAI_API_KEY=$OPENAI_API_KEY
+    #   - ENVIRONMENT=$ENVIRONMENT
+    #   - DB_URL=$DB_URL
+    #   - DB_USER=$DB_USER
+    #   - DB_PASS=$DB_PASS
+    #   - DB_NAME=$DB_NAME
+    #   - DOMAIN_ROOT=$DOMAIN_ROOT
+    #   - SENDGRID_API_KEY=$SENDGRID_API_KEY
+      - VERIFICATION_EMAIL_TEMPLATE_ID=$VERIFICATION_EMAIL_TEMPLATE_ID
+    #   - EMAIL_FROM=$EMAIL_FROM
+    networks:
+      - traefik_webgateway
+    restart: on-failure
+    labels:
+      # Standard configuration
+      - "traefik.enable=true"
+      - "traefik.http.routers.fastapi.rule=Host(`api.cyberkitty.ai`)"
+      - "traefik.http.services.fastapi.loadbalancer.server.port=8000"
+      - "traefik.docker.network=traefik_webgateway"
+      # HTTPS configuration
+      - "traefik.http.routers.fastapi.tls=true"
+      - "traefik.http.routers.fastapi.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.fastapi.entrypoints=websecure"
+
+  frontend:
+    build:
+      dockerfile: Frontend.Dockerfile
+      context: .
+      args:
+        REACT_APP_API_URL: "api.cyberkitty.ai"
+        NODE_ENV: "development"
+    networks:
+      - traefik_webgateway
+    depends_on:
+      - api
+    restart: on-failure
+    labels:
+      # Standard configuration
+      - "traefik.enable=true"
+      - "traefik.http.routers.webappfrontend.rule=Host(`cyberkitty.ai`)"
+      - "traefik.http.services.webappfrontend.loadbalancer.server.port=80"
+      - "traefik.docker.network=traefik_webgateway"
+      # HTTPS configuration
+      - "traefik.http.routers.webappfrontend.tls=true"
+      - "traefik.http.routers.webappfrontend.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.webappfrontend.entrypoints=websecure"
+
+
+  traefik:
+    image: "traefik:v2.9"
+    container_name: "traefik"
+    command:
+      - "--api.insecure=false"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+
+      - "--certificatesresolvers.letsencrypt.acme.httpchallenge=true"
+      - "--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web"
+      - "--certificatesresolvers.letsencrypt.acme.email=admin@cyberkitty.ai"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/certificates/acme.json"
+    ports:
+      - 443:443
+      - 80:80
+
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+      - "traefik-public-certificates:/certificates"
+
+    networks:
+      - traefik_webgateway
+
+    restart: always
+
+volumes:
+  traefik-public-certificates:
+
+networks:
+  traefik_webgateway:

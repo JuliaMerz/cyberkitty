@@ -59,6 +59,7 @@ const SceneOutline: React.FC<SceneOutlineProps> = ({sceneOutlineId, inner, scene
       console.log("Generator failure: ", err);
       setError('Failed to generate scene outline');
     } finally {
+      await fetchSceneOutline();
       setLoading(false);
     }
   };
@@ -115,6 +116,9 @@ const SceneOutline: React.FC<SceneOutlineProps> = ({sceneOutlineId, inner, scene
         return <div className="wrapped"><Markdown>{"## Editing Notes \n" + sceneOutline?.edit_notes + "\n" + sceneOutline?.improved}</Markdown></div>;
       case 'editable':
       case 'outlines':
+        if (sceneOutline && sceneOutline?.current_scene === null) {
+          return <p>No scene outlines yet. Try generating some.</p>;
+        }
         return sceneOutline?.current_scene ?
           <Scene outline_mode={currentOutlineType == 'editable'} sceneId={sceneOutline.current_scene.id} scenePreview={sceneOutline.current_scene} inner={false} />
           : null

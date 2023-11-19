@@ -1,0 +1,70 @@
+version: '3.8'
+
+services:
+  api:
+    env_file:
+      - .env
+    build:
+      dockerfile: Api.Dockerfile
+      context: .
+    networks:
+      - traefik_webgateway
+    restart: on-failure
+    depends_on:
+      - traefik
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.fastapi.rule=Host(`api.cyberkitty.localhost`)"
+      - "traefik.http.routers.fastapi.entrypoints=web"
+      - "traefik.http.services.fastapi.loadbalancer.server.port=8000"
+      - "traefik.docker.network=traefik_webgateway"
+
+  frontend:
+    env_file:
+      - ./frontend/.env.development
+    build:
+      dockerfile: Frontend.Dockerfile
+      context: .
+      args:
+        REACT_APP_API_URL: "http://api.cyberkitty.localhost"
+        NODE_ENV: "development"
+    networks:
+      - traefik_webgateway
+    depends_on:
+      - api
+    restart: on-failure
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.webappfrontend.rule=Host(`cyberkitty.localhost`)"
+      - "traefik.http.routers.webappfrontend.entrypoints=web"
+      - "traefik.http.services.webappfrontend.loadbalancer.server.port=80"
+      - "traefik.docker.network=traefik_webgateway"
+
+  # Traefik service (container)
+  traefik:
+    image: "traefik:v2.9"
+    container_name: "traefik"
+    # Commands listed below determine configuration of our traefik instance
+    command:
+      - "--api.insecure=true" # Enables traefik dashboard that will listen on port 8080
+      - "--providers.docker=true" # Defines docker as a provider
+      - "--providers.docker.exposedbydefault=false" # Prevents from exposing all containers by default
+      - "--entrypoints.web.address=:80" # Will listen to incoming requests on port 80
+
+    # Here we map ports from container to our host machine
+    # which means that port 80 on our machine will access port 80 in traefik service
+    ports:
+      - "80:80"
+      - "8080:8080"
+
+    networks:
+      - traefik_webgateway
+
+    # Here we will share docker.sock file that is present in our host machine
+    # with this container. It will allow Traefik to listen to Docker events
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+
+networks:
+  traefik_webgateway:
+

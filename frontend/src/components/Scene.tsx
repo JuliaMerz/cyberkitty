@@ -54,6 +54,7 @@ const Scene: React.FC<SceneProps> = ({sceneId, inner, scenePreview, forceText, o
       console.log("Generator failure: ", err);
       setError('Failed to generate scene');
     } finally {
+      await fetchScene();
       setLoading(false);
     }
   };
@@ -147,7 +148,7 @@ const Scene: React.FC<SceneProps> = ({sceneId, inner, scenePreview, forceText, o
       <div className="wrapped">
         {((inner === undefined || !inner) &&
           (<h5>Scene <Link to={`/debug/scene/${sceneId}`}> <VscDebug /> </Link><a onClick={toggleText}><CiText /></a></h5>))}
-        {/* Additional scene details can be rendered here */}
+        {scene?.improved !== '' ? <p>Try editing the outline with the "Editable" button above, then generate the scene text with "Generate New Draft".</p> : null}
         <button onClick={generateScene}>Generate New Draft</button>
         {loading ? <button onClick={generateSceneForce}>Retry...</button> : null}
         {error && <p>Error: {error}</p>}

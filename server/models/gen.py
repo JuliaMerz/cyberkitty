@@ -181,26 +181,27 @@ class StoryOutline(StoryOutlineBase, table=True):
     def all_chapter_outlines(self) -> List["ChapterOutlineRead"]:
         return [ChapterOutlineRead.from_orm(x) for x in self.chapter_outlines]
 
-
-class StoryOutlineRead(StoryOutlineBase):
+class StoryOutlineStub(StoryOutlineBase):
     id: int = Field()
     author_id: int = Field()
     modified: bool = Field()
     is_public: bool = False
     invalidated: bool = Field()
-    created_on: datetime = Field()
-    updated_on: datetime = Field()
 
     outline_onesentence_parsed: list[formats.SimpleOutlineInnerParsed] = Field()
     outline_mainevents_raw_parsed: list[formats.MediumOutlineInnerParsed] = Field()
     outline_mainevents_improved_parsed: list[formats.MediumOutlineInnerParsed] = Field()
     outline_paragraphs_parsed: list[formats.ComplexOutlineInnerParsed] = Field()
 
+class StoryOutlineRead(StoryOutlineStub):
+    created_on: datetime = Field()
+    updated_on: datetime = Field()
+
     # Relationships
     author: "User" = Field()
     story: StoryBase = Field()
     # all_chapter_outlines: List["ChapterOutlineRead"] = Field()
-    current_chapter_outlines: List["ChapterOutlineRead"] = Field()
+    current_chapter_outlines: List["ChapterOutlineStub"] = Field()
 
 class StoryOutlineReadRecursive(StoryOutlineBase):
     current_chapter_outlines: List["ChapterOutlineReadRecursive"] = Field()
@@ -305,26 +306,28 @@ class ChapterOutline(ChapterOutlineBase, table=True):
     next_chapters: List["ChapterOutline"] = Relationship(
         back_populates="previous_chapter")
 
-class ChapterOutlineRead(ChapterOutlineBase):
+class ChapterOutlineStub(ChapterOutlineBase):
     id: int = Field()
     author_id: int = Field()
     modified: bool = Field()
     is_public: bool = False
     invalidated: bool = Field()
-    created_on: datetime = Field()
-    updated_on: datetime = Field()
 
     raw_parsed: list[formats.ChapterOutlineInnerParsed] = Field()
     improved_parsed: list[formats.ChapterOutlineInnerParsed] = Field()
+
+class ChapterOutlineRead(ChapterOutlineStub):
+    created_on: datetime = Field()
+    updated_on: datetime = Field()
 
     # Relationships
     story_outline: StoryOutlineBase = Field()
     author: "User" = Field()
     # all_scene_outlines: List["SceneOutlineRead"] = Field()
-    current_scene_outlines: List["SceneOutlineRead"] = Field()
+    current_scene_outlines: List["SceneOutlineStub"] = Field()
 
-    previous_chapter: Optional["ChapterOutlineRead"] = Field()
-    next_chapter: Optional["ChapterOutlineRead"] = Field()
+    previous_chapter: Optional["ChapterOutlineStub"] = Field()
+    next_chapter: Optional["ChapterOutlineStub"] = Field()
 
 class ChapterOutlineReadRecursive(ChapterOutlineRead):
     current_scene_outlines: List["SceneOutlineReadRecursive"] = Field()
@@ -409,17 +412,19 @@ class SceneOutline(SceneOutlineBase, table=True):
         back_populates="previous_scene_outline")
 
 
-class SceneOutlineRead(SceneOutlineBase):
+class SceneOutlineStub(SceneOutlineBase):
     id: int = Field()
     author_id: int = Field()
     modified: bool = Field()
     is_public: bool = False
     invalidated: bool = Field()
-    created_on: datetime = Field()
-    updated_on: datetime = Field()
 
     raw_parsed: list[formats.SceneOutlineInnerParsed] = Field()
     improved_parsed: list[formats.SceneOutlineInnerParsed] = Field()
+
+class SceneOutlineRead(SceneOutlineStub):
+    created_on: datetime = Field()
+    updated_on: datetime = Field()
 
     # Relationships
     author: "User" = Field()
@@ -526,21 +531,23 @@ class Scene(SceneBase, table=True):
     next_scenes: List["Scene"] = Relationship(
         back_populates="previous_scene")
 
-
-class SceneRead(SceneBase):
+class SceneStub(SceneBase):
     id: int = Field()
-    author_id: int = Field()
     modified: bool = Field()
     is_public: bool = False
     invalidated: bool = Field()
-    created_on: datetime = Field()
-    updated_on: datetime = Field()
 
     raw_parsed: list[formats.SceneTextInnerParsed] = Field()
     improved_parsed: list[formats.SceneTextInnerParsed] = Field()
 
     raw_text: str = Field()
     improved_text: str = Field()
+
+class SceneRead(SceneStub):
+    author_id: int = Field()
+    created_on: datetime = Field()
+    updated_on: datetime = Field()
+
 
     # Relationships
     author: "User" = Field()

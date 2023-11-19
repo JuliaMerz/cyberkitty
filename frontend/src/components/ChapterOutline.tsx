@@ -135,6 +135,9 @@ const ChapterOutline: React.FC<ChapterOutlineProps> = ({chapterOutlineId, inner,
       case 'outlines':
         console.log("chapterOutline: ", chapterOutline);
         console.log("chapterOutlinescenes: ", chapterOutline?.current_scene_outlines);
+        if (chapterOutline?.current_scene_outlines.length === 0) {
+          return <p>No scene outlines yet. Try generating some.</p>;
+        }
         return chapterOutline?.current_scene_outlines?.map((sceneOutline, i) => (
           <Collapsible key={sceneOutline.id} title={(<h5>Scene {(sceneOutline as any).forceText ? "Text" : "Outline"} <Link to={`/debug/scene-outline/${sceneOutline.id}`}> <VscDebug /> </Link><a onClick={(e) => toggleTextInner(e, i)}><CiText /></a></h5>)} level={5}>
             <div className="wrapped">

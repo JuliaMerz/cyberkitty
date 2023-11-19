@@ -16,6 +16,7 @@ const StoryOutline: React.FC<StoryOutlineProps> = ({storyOutlineId}) => {
   const [storyOutline, setStoryOutline] = useState<StoryOutlineRead | null>(null);
   const [currentOutlineType, setCurrentOutlineType] = useState<string>('onesentence');
   const [loading, setLoading] = useState<boolean>(false);
+  const [fetching, setFetching] = useState<boolean>(false);
   const [error, setError] = useState<string>('');
   const [chunks, setChunks] = useState<[string, string][]>([['', '']]);
 
@@ -23,14 +24,18 @@ const StoryOutline: React.FC<StoryOutlineProps> = ({storyOutlineId}) => {
 
   const fetchStoryOutline = async () => {
     try {
+      setFetching(true);
+
       const response = await fetch(`${apiUrl}/apiv1/data/story-outline/${storyOutlineId}`);
       const data: StoryOutlineRead = await response.json();
       setStoryOutline(data);
       if (data.current_chapter_outlines.length > 0) {
         setCurrentOutlineType('outlines');
       }
+      setFetching(false);
     } catch (err) {
       setError('Failed to fetch story outline');
+      setFetching(false);
     }
   };
 
@@ -47,6 +52,7 @@ const StoryOutline: React.FC<StoryOutlineProps> = ({storyOutlineId}) => {
       console.log("Generator failure: ", err);
       setError('Failed to generate outline');
     } finally {
+      await fetchStoryOutline();
       setLoading(false);
     }
   };
@@ -75,6 +81,7 @@ const StoryOutline: React.FC<StoryOutlineProps> = ({storyOutlineId}) => {
       case 'outlines':
         return <div>
           <h2>Current Chapter Outlines</h2>
+          {storyOutline?.current_chapter_outlines?.length === 0 ? <p>No chapter outlines yet. Generate a story outline first!</p> : null}
           {storyOutline?.current_chapter_outlines?.map((chapterOutline: ChapterOutlineRead) => (
             <Collapsible key={chapterOutline.id} title={chapterOutline.chapter_number + " — " + chapterOutline.title} level={3}>
               <ChapterOutline key={chapterOutline.id} chapterOutlineId={chapterOutline.id} chapterOutlinePreview={chapterOutline} />
@@ -93,6 +100,7 @@ const StoryOutline: React.FC<StoryOutlineProps> = ({storyOutlineId}) => {
       {error && <p>Error: {error}</p>}
       <button onClick={generateOutline}>Generate Outline</button>
       <div>
+        {fetching ? <p>Loading...</p> : null}
         {outlineTypes.map(type => (
           <button key={type} onClick={() => setCurrentOutlineType(type)}>
             {type}

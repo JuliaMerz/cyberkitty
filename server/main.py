@@ -16,11 +16,14 @@ origins = [
     "http://localhost:3001",
     "http://localhost:3002",
     "http://localhost",
+    "http://*.localhost",
+    "http://*.cyberkitty.ai",
 ]
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
+    allow_origin_regex=r"http://.*\.localhost",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -39,6 +42,11 @@ def authjwt_exception_handler(request: Request, exc: AuthJWTException):
 # Include routers
 app.include_router(api_router , prefix="/apiv1")
 app.include_router(auth_router, prefix="/auth")
+
+# import logging
+# logging.basicConfig()
+# logging.getLogger('sqlalchemy.engine').setLevel(logging.INFO)
+
 
 # Additional configurations like middleware can be added here
 

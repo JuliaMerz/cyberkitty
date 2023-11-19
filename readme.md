@@ -53,6 +53,13 @@ about its editing. Its desire to fulfill the request for "improvement notes" for
 and those ideas being at the top of its generated output mean that when it's doing revisions it's constantly
 trying to fulfill the edit requests.
 
+### Prompt Engineering/Imitation
+By default GPT produces work that is the rough average of its inputs, applicable to its current output.
+We get about a 20% improvement in writing quality by modifying its system prompt to include "you are an author
+that writes tight, high quality prose." There's similar small adjustments like this sprinkled throughout
+the underlying prompt engineering, including specific nudges for creating dialogue or writing in a non-summarizing
+perspective. Check out `prompt_generator.py` for a full rundown of the prompting algorithm.
+
 ![forward editing](./forward_edits.png)
 
 ### Human Interface
@@ -71,11 +78,13 @@ if you want to rerender. (it does not yet keep you from rerendering over your ow
 
 ## Expectations/Outcomes
 The hardest part of working on this for me was not setting my own bar at "AI creates infinite books."
-Can GPT generate a full work of fiction? yes. Try it. It also requires 500k or so tokens and 20ish bucks
-It will produce moderate quality work, just like all current GPT outputs. It will sometimes get lost in itself,
-just like all current GPT outputs.
+Can GPT generate a full work of fiction? yes. Try it in the editor. It requires 500k or so tokens, 20ish bucks,
+ and like every other current (Nov '23) GPT application it will produce mid-range prose, acceptable concepts,
+and occasional word soup.
 
-From a purely AI perspective, the ideal target is to eliminate the quality loss experienced when asking GPT
+Prompting techniques get us closer to the state of the art, but fundamentally these things will improve
+as AI models improve as AI models improve. A reasonalbe goal then, is
+to eliminate the quality loss experienced when asking GPT
 to work in a longer context window, and from that perspective CyberKitty gets pretty close. The
 rest will continue to improve as GPT does.
 
