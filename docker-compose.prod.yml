@@ -2,6 +2,8 @@ version: '3.8'
 
 services:
   api:
+    env_file:
+      - .env.prod
     build:
       context: .
       dockerfile: Api.Dockerfile
@@ -39,7 +41,7 @@ services:
       dockerfile: Frontend.Dockerfile
       context: .
       args:
-        REACT_APP_API_URL: "api.cyberkitty.ai"
+        REACT_APP_API_URL: "https://api.cyberkitty.ai"
         NODE_ENV: "development"
     networks:
       - traefik_webgateway

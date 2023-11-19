@@ -14,7 +14,7 @@ services:
       - traefik
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.fastapi.rule=Host(`api.cyberkitty.localhost`)"
+      - "traefik.http.routers.fastapi.rule=Host(`api.cyberkitty.ai`)"
       - "traefik.http.routers.fastapi.entrypoints=web"
       - "traefik.http.services.fastapi.loadbalancer.server.port=8000"
       - "traefik.docker.network=traefik_webgateway"
@@ -35,7 +35,7 @@ services:
     restart: on-failure
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.webappfrontend.rule=Host(`cyberkitty.localhost`)"
+      - "traefik.http.routers.webappfrontend.rule=Host(`cyberkitty.ai`)"
       - "traefik.http.routers.webappfrontend.entrypoints=web"
       - "traefik.http.services.webappfrontend.loadbalancer.server.port=80"
       - "traefik.docker.network=traefik_webgateway"

@@ -18,6 +18,7 @@ origins = [
     "http://localhost",
     "http://*.localhost",
     "http://*.cyberkitty.ai",
+    "https://*.cyberkitty.ai",
 ]
 
 app.add_middleware(

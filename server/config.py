@@ -18,9 +18,10 @@ class Settings(BaseSettings):
     SECRET_KEY: str | None = config.get('SECRET_KEY')
     OPENAI_API_KEY: str  | None= config.get('OPENAI_API_KEY')
     ENVIRONMENT: str = config.get('ENVIRONMENT', 'development')
-    DATABASE_URL: str = config.get('DATABASE_URL', 'sqlite:///./test.db')
-    DATABASE_USERNAME: str = config.get('DATABASE_USERNAME', '')
-    DATABASE_PASSWORD: str = config.get('DATABASE_PASSWORD', '')
+    DATABASE_HOST: str = config.get('DB_HOST', './test.db')
+    DATABASE_DRIVER: str = config.get('DB_DRIVER', 'sqlite')
+    DATABASE_USERNAME: str = config.get('DB_USER', '')
+    DATABASE_PASSWORD: str = config.get('DB_PASS', '')
     DOMAIN_ROOT: str = config.get('DOMAIN_ROOT', 'http://localhost:8000')
     # TWILIO_ACCOUNT_SID: str = config.get('TWILIO_ACCOUNT_SID', '')
     # TWILIO_AUTH_TOKEN: str = config.get('TWILIO_AUTH_TOKEN', '')
@@ -28,6 +29,7 @@ class Settings(BaseSettings):
     SENDGRID_API_KEY: str = config.get('SENDGRID_API_KEY', '')
     VERIFICATION_EMAIL_TEMPLATE_ID: str = config.get('VERIFICATION_EMAIL_TEMPLATE_ID', '')
     EMAIL_FROM: str = config.get('EMAIL_FROM', '')
+    DATABASE_URL: str = config.get('DB_DRIVER', 'sqlite')+ ":///"+config.get('DB_HOST', './test.db')
 
 
 @lru_cache()

@@ -51,8 +51,6 @@ def run_migrations_offline() -> None:
     """
     url = config.get_main_option("sqlalchemy.url")
 
-    # override for local
-    url = "driver://user:pass@localhost/dbname"
     context.configure(
         url=url,
         target_metadata=target_metadata,
@@ -88,6 +86,7 @@ def run_migrations_online() -> None:
     url = config.get_main_option("sqlalchemy.url")
 
     url = re.sub(r"\${(.+?)}", lambda m: url_tokens[m.group(1)], url)
+    print(url)
 
     connectable = create_engine(url)
 

@@ -9,6 +9,7 @@ dist
 site
 .coverage
 .env
+.env.prod
 coverage.xml
 .netlify
 test.db
