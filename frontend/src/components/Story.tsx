@@ -140,6 +140,15 @@ const Story: React.FC<StoryProps> = ({storyId}) => {
         <h1>{story ? story.title : "Loading..."}<Link to={`/debug/story/${storyId}`}> <VscDebug /> </Link></h1>
 
         <p><i> {story?.is_public ? 'Public' : 'Private'}</i></p>
+        <p><strong>Instructions:</strong> Use the "generate" bottons to have the AI generate the
+          next step in drafting your novel. The AI will then draft a suggested starting point.
+          You can then edit the generated text as you see fit. Once you are satisfied,
+          generate the next steps! The editor will autosave whenever you finish editing a field,
+          and will warn you if you've made a change at a higher level without regenerating.
+        </p>
+        <p>This is a one week PoC, so mind the loading times and refresh if anything gets buggy!</p>
+
+        <p>Play around and explore!</p>
         <h6>Description:</h6>
         <ModifiableMarkdown editCallback={fieldUpdater('description', false)} saveCallback={updateStoryCallback}>{story?.description}</ModifiableMarkdown>
         <h6>Style:</h6>
