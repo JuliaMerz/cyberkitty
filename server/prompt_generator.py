@@ -146,7 +146,7 @@ def generate_story_outline_step_1() -> str:
     In this step, we'll generate an outline of the story with one sentence for each chapter. Feel free to divide the story into
     parts or arcs if you feel it is appropriate.
 
-    In order to write a novel length story, we'll need 20-30 chapters, each with a one sentence description.
+    In order to write a novel length story, we'll need 15 to 25 chapters, each with a one sentence description.
 
     Please respond using valid markdown syntax, separating the sections as shown inside this code block. We've used <> to indicate where you should fill things:
     ```
