@@ -8,6 +8,7 @@ engine = None
 url = f"{conf.DB_DRIVER}://{conf.DB_USER}:{conf.DB_PASS}@{conf.DB_HOST}/{conf.DB_NAME}"
 
 if conf.DB_DRIVER=="sqlite":
+    url = f"{conf.DB_DRIVER}:///{conf.DB_HOST}"
     engine = create_engine(
         url, connect_args={"check_same_thread": False}
     )

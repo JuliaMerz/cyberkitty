@@ -122,7 +122,7 @@ export const CreateInterceptors = (() => {
                       fetch(response.url, {
                         ...dataRequests[requestKey],
                         headers: {
-                          ...dataRequests[requestKey].headers,
+                          ...dataRequests[requestKey]?.headers,
                           Authorization: `Bearer ${new_token}`,
                         },
                       })

@@ -54,7 +54,11 @@ class Story(StoryBase, table=True):
     # Relationships
     author: "User" = Relationship(back_populates="stories")
     # only a single story outline should ever be valid, but if we regen we might get multiple.
-    story_outlines: List["StoryOutline"] = Relationship(back_populates="story")
+    story_outlines: List["StoryOutline"] = Relationship(back_populates="story",
+                                                        sa_relationship_kwargs= {
+                                                        "lazy":"selectin",
+                                                        })
+
 
     queries: List["Query"] = Relationship(back_populates="story",
                                           sa_relationship_kwargs= {
@@ -168,6 +172,9 @@ class StoryOutline(StoryOutlineBase, table=True):
     author: "User" = Relationship(back_populates="story_outlines")
     story: Story = Relationship(back_populates="story_outlines")
     chapter_outlines: List["ChapterOutline"] = Relationship(
+                                                        sa_relationship_kwargs= {
+                                                        "lazy":"selectin",
+                                                        },
         back_populates="story_outline")
     queries: List["Query"] = Relationship(back_populates="story_outline")
 
@@ -282,6 +289,9 @@ class ChapterOutline(ChapterOutlineBase, table=True):
         back_populates="chapter_outlines")
     author: "User" = Relationship(back_populates="chapter_outlines")
     scene_outlines: List["SceneOutline"] = Relationship(
+                                                        sa_relationship_kwargs= {
+                                                        "lazy":"selectin",
+                                                        },
         back_populates="chapter_outline")
     queries: List["Query"] = Relationship(back_populates="chapter_outline")
 
@@ -384,13 +394,14 @@ class SceneOutline(SceneOutlineBase, table=True):
     author: "User" = Relationship(back_populates="scene_outlines")
     chapter_outline: ChapterOutline = Relationship(
         back_populates="scene_outlines")
-    scenes: List["Scene"] = Relationship(back_populates="scene_outline")
+    scenes: List["Scene"] = Relationship(back_populates="scene_outline",
+                                                        sa_relationship_kwargs= {
+                                                        "lazy":"selectin",
+                                                        })
     queries: List["Query"] = Relationship(back_populates="scene_outline")
 
     @property
     def current_scene(self) -> Optional["SceneRead"]:
-        print('finding current scene', len(self.scenes))
-        print('finding current scene', self.scenes is None)
         out =  [SceneRead.from_orm(x) for x in filter(lambda x: not x.invalidated, self.scenes)]
         return out[0] if len(out)>0 else None
 
@@ -401,7 +412,6 @@ class SceneOutline(SceneOutlineBase, table=True):
     # workaround for sqlalchemy being a dick about one-to-one self references
     @property
     def next_scene_outline(self) -> Optional["SceneOutline"]:
-        print("is it this one?", self.next_scene_outlines is None)
         out = [x for x in filter(lambda x: not x.invalidated, self.next_scene_outlines)]
         return out[0] if len(out)>0 else None
 

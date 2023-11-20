@@ -251,29 +251,34 @@ def parse_story_outline_complex(string) -> ComplexOutlineParsed:
         (?:\#\#\s(?P<part_label>(Part|Arc)\s.*?)\n)?
         (?:.*?) #this compensates for editing notes or other garbage. Min so it doens't eat content.
         \#\#\#\sChapter\s(?P<chap_num>\d+)
-        (?:\s*—\s*(?P<title>.*?))?
-        \n
-        (?:\#\#\#\#\sChapter\sPurpose\n(?P<purpose>.*?))?
-        \n
-        (?:\#\#\#\#\sMain\sEvents\n(?P<events>.*?))?
-        \n
-        (?:\#\#\#\#\sChapter\sSummary\n(?P<summary>.*?))?
-        \n
-        (?:\#\#\#\#\s(?:Chapter\s)?Notes\n(?P<notes>.*?))?
+        (?:\s*—\s*(?P<title>.*?)\n)?
+        (?P<content>.*?)
         (?=\n\#\#\#\sChapter|\Z)
+    """
+
+    inner_pattern = r"""
+        (?:\#\#\#\#\sChapter\sPurpose\n(?P<purpose>.*?)\n)?
+        (?:\#\#\#\#\sMain\sEvents\n(?P<events>.*?)\n)?
+        (?:\#\#\#\#\sChapter\sSummary\n(?P<summary>.*?)\n)?
+        (?:\#\#\#\#\s(?:Chapter\s)?Notes\n(?P<notes>.*?))?
     """
     chapters = re.finditer(chapter_pattern, string, re.DOTALL | re.VERBOSE)
 
     outline: list[ComplexOutlineInnerParsed] = []
     for match in chapters:
+        inner_match = re.search(inner_pattern, match.group('content'), re.DOTALL | re.VERBOSE)
+        if not inner_match:
+            print("FAILURE OF INNER")
+            print("INNER MATCH: ", match.group('content'))
+            continue
         outline.append({
             'part_label': match.group('part_label').strip() if match.group('part_label') else None,
             'chapter_number': match.group('chap_num').strip(),
             'title': match.group('title').strip() if match.group('title') else '',
-            'chapter_purpose': match.group('purpose').strip() if match.group('purpose') else '',
-            'chapter_summary': match.group('summary').strip() if match.group('summary') else '',
-            'main_events': match.group('events').strip() if match.group('events') else '',
-            'notes': match.group('notes').strip() if match.group('notes') else ''
+            'chapter_purpose': inner_match.group('purpose').strip() if inner_match.group('purpose') else '',
+            'chapter_summary': inner_match.group('summary').strip() if inner_match.group('summary') else '',
+            'main_events': inner_match.group('events').strip() if inner_match.group('events') else '',
+            'notes': inner_match.group('notes').strip() if inner_match.group('notes') else ''
         })
     return {'chapters': outline}
 
