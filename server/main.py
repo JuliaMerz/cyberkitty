@@ -19,12 +19,13 @@ origins = [
     "http://*.localhost",
     "http://*.cyberkitty.ai",
     "https://*.cyberkitty.ai",
+    "https://cyberkitty.ai",
 ]
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
-    allow_origin_regex=r"http://.*\.localhost",
+    allow_origin_regex=r"http://.*\.(localhost|cyberkitty\.ai)",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

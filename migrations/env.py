@@ -16,7 +16,6 @@ dotenv.load_dotenv()
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config
-config.set_main_option('sqlalchemy.url',  conf.DATABASE_URL)
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
@@ -84,7 +83,9 @@ def run_migrations_online() -> None:
     }
 
     url = config.get_main_option("sqlalchemy.url")
+    print(url)
 
+    print(url_tokens)
     url = re.sub(r"\${(.+?)}", lambda m: url_tokens[m.group(1)], url)
     print(url)
 

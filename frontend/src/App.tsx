@@ -63,44 +63,73 @@ import fetchIntercept from 'fetch-intercept';
 //   const originalRequest = error.config;
 // });
 
+// We want the token code running FIRST
 
+const fetchToken = async () => {
+  if (process.env.REACT_APP_SERVER_MODE === 'development') {
+    console.log("Dev env, fetching dev token");
+    try {
+      const response = await fetch(`${process.env.REACT_APP_API_URL}/auth/dev_ping`);
+      const data = await response.json();
+      console.log("Dev token: ", data);
+      const token = data.access_token;
+      const refreshToken = data.refresh_token;
+      localStorage.setItem('token', token);
+      localStorage.setItem('refreshToken', refreshToken);
+    } catch (error) {
+      console.error('Error fetching token:', error);
+    }
+  }
+};
+function setupAuth() {
+
+  const interceptors = CreateInterceptors.getInstance();
+  interceptors.registerInterceptors();
+
+  const existingToken = localStorage.getItem('token');
+  console.log("Existing token: ", existingToken);
+  if (!existingToken) {
+    fetchToken();
+  }
+}
+
+setupAuth();
 
 const App: React.FC = () => {
 
-  useEffect(() => {
-    const existingToken = localStorage.getItem('token');
-    console.log("Existing token: ", existingToken);
-    if (!existingToken) {
-      fetchToken();
-    }
-  }, []);
+  //   useEffect(() => {
+  //     const existingToken = localStorage.getItem('token');
+  //     console.log("Existing token: ", existingToken);
+  //     if (!existingToken) {
+  //       fetchToken();
+  //     }
+  //   }, []);
 
-  useEffect(() => {
-    const interceptors = CreateInterceptors.getInstance();
-    interceptors.registerInterceptors();
-  });
+  //   useEffect(() => {
+  //     console.log("interception")
+  //   });
 
 
   const devMode = () => {
     return process.env.REACT_APP_SERVER_MODE === 'development';
   }
 
-  const fetchToken = async () => {
-    if (process.env.REACT_APP_SERVER_MODE === 'development') {
-      console.log("Dev env, fetching dev token");
-      try {
-        const response = await fetch(`${process.env.REACT_APP_API_URL}/auth/dev_ping`);
-        const data = await response.json();
-        console.log("Dev token: ", data);
-        const token = data.access_token;
-        const refreshToken = data.refresh_token;
-        localStorage.setItem('token', token);
-        localStorage.setItem('refreshToken', refreshToken);
-      } catch (error) {
-        console.error('Error fetching token:', error);
-      }
-    }
-  };
+  // const fetchToken = async () => {
+  //   if (process.env.REACT_APP_SERVER_MODE === 'development') {
+  //     console.log("Dev env, fetching dev token");
+  //     try {
+  //       const response = await fetch(`${process.env.REACT_APP_API_URL}/auth/dev_ping`);
+  //       const data = await response.json();
+  //       console.log("Dev token: ", data);
+  //       const token = data.access_token;
+  //       const refreshToken = data.refresh_token;
+  //       localStorage.setItem('token', token);
+  //       localStorage.setItem('refreshToken', refreshToken);
+  //     } catch (error) {
+  //       console.error('Error fetching token:', error);
+  //     }
+  //   }
+  // };
 
   return (
     <Router>

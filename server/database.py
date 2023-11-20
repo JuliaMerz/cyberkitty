@@ -4,10 +4,17 @@ from .config import get_settings
 
 
 conf = get_settings()
+engine = None
+url = f"{conf.DB_DRIVER}://{conf.DB_USER}:{conf.DB_PASS}@{conf.DB_HOST}/{conf.DB_NAME}"
 
-engine = create_engine(
-    conf.DATABASE_URL, connect_args={"check_same_thread": False}
-)
+if conf.DB_DRIVER=="sqlite":
+    engine = create_engine(
+        url, connect_args={"check_same_thread": False}
+    )
+else:
+    engine = create_engine(
+        url, connect_args={}
+    )
 
 
 def get_db_session():
