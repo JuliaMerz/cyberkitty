@@ -3,7 +3,7 @@ import {BrowserRouter as Router, Route, Routes} from 'react-router-dom';
 import Navbar from './components/Navbar';
 import Title from './components/Title';
 
-import {CreateInterceptors} from './utils/refreshInterceptor';
+import {fetchToken, CreateInterceptors} from './utils/refreshInterceptor';
 
 import Home from './pages/Home';
 import Generate from './pages/Generate';
@@ -65,22 +65,6 @@ import fetchIntercept from 'fetch-intercept';
 
 // We want the token code running FIRST
 
-const fetchToken = async () => {
-  if (process.env.REACT_APP_SERVER_MODE === 'development') {
-    console.log("Dev env, fetching dev token");
-    try {
-      const response = await fetch(`${process.env.REACT_APP_API_URL}/auth/dev_ping`);
-      const data = await response.json();
-      console.log("Dev token: ", data);
-      const token = data.access_token;
-      const refreshToken = data.refresh_token;
-      localStorage.setItem('token', token);
-      localStorage.setItem('refreshToken', refreshToken);
-    } catch (error) {
-      console.error('Error fetching token:', error);
-    }
-  }
-};
 function setupAuth() {
 
   const interceptors = CreateInterceptors.getInstance();

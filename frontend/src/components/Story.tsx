@@ -1,5 +1,6 @@
 import React, {useState, useEffect} from 'react';
 import ModifiableMarkdown from './ModifiableMarkdown'; // Assuming you have a LoadingComponent
+import {fetchToken} from '../utils/refreshInterceptor';
 import {Link} from 'react-router-dom';
 import {StoryRead} from '../apiTypes'; // Import the Story type
 import {PartialEvent, ParsedEvent, ReconnectInterval} from '../utils/eventTypes';
@@ -25,6 +26,11 @@ const Story: React.FC<StoryProps> = ({storyId}) => {
   const apiUrl = process.env.REACT_APP_API_URL;
   const fetchStory = async () => {
     try {
+      if (localStorage.getItem('token') === null) {
+        console.log("no token, double fetching")
+        await fetchToken();
+      }
+
       const response = await fetch(`${apiUrl}/apiv1/data/story/${storyId}`);
 
       setStory(await response.json());
@@ -41,6 +47,7 @@ const Story: React.FC<StoryProps> = ({storyId}) => {
     }
     setLoading(true);
     try {
+
 
       await parseGenerator(`${apiUrl}/apiv1/generator/story/${storyId}`,
         (chunks: [string, string][]) => setChunks(chunks),

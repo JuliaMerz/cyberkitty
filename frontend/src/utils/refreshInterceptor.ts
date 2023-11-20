@@ -2,6 +2,24 @@ import fetchIntercept from 'fetch-intercept';
 
 const REFRESH_URL = `${process.env.REACT_APP_API_URL}/auth/refresh`;
 
+
+export const fetchToken = async () => {
+  if (process.env.REACT_APP_SERVER_MODE === 'development') {
+    console.log("Dev env, fetching dev token");
+    try {
+      const response = await fetch(`${process.env.REACT_APP_API_URL}/auth/dev_ping`);
+      const data = await response.json();
+      console.log("Dev token: ", data);
+      const token = data.access_token;
+      const refreshToken = data.refresh_token;
+      localStorage.setItem('token', token);
+      localStorage.setItem('refreshToken', refreshToken);
+    } catch (error) {
+      console.error('Error fetching token:', error);
+    }
+  }
+};
+
 const refreshAccessToken = async () => {
   const refreshToken = localStorage.getItem('refreshToken');
   const response = await fetch(`${process.env.REACT_APP_API_URL}/auth/refresh`, {
