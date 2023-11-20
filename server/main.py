@@ -45,9 +45,9 @@ def authjwt_exception_handler(request: Request, exc: AuthJWTException):
 app.include_router(api_router , prefix="/apiv1")
 app.include_router(auth_router, prefix="/auth")
 
-import logging
-logging.basicConfig()
-logging.getLogger('sqlalchemy.engine').setLevel(logging.INFO)
+# import logging
+# logging.basicConfig()
+# logging.getLogger('sqlalchemy.engine').setLevel(logging.INFO)
 
 
 # Additional configurations like middleware can be added here
