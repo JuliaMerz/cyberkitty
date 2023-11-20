@@ -26,7 +26,7 @@ const Home: React.FC = () => {
 
       <div className="home-button"><p><button onClick={openModal}>Draft Your First Novel </button></p></div>
       <div className="home-notice">
-        <p>Note: While CyberKitty <b>can</b> draft a novel on its own, it's best
+        <p>Note: While CyberKitty <b>can</b> draft a novel entirely on its own, it's best
           seen as an assistant, rather than a full on generator. AI is powerful, but
           it's not a (full) substitute for artistic intention or practice or taste.</p>
         <p>Unique ideas and stories worth telling are still the most important ingredients

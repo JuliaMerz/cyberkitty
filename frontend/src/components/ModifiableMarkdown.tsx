@@ -16,6 +16,7 @@ const ModifiableMarkdown: React.FC<ModifiableMarkdownProps> = ({children, editCa
 
   const handleSave = async () => {
     saveCallback().then(() => {
+      setIsEditing(false);
       setError('');
     }).catch(() => {
       setError('Failed to save changes');
