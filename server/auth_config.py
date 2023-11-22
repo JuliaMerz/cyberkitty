@@ -93,6 +93,14 @@ async def get_current_user_or_none(db: Session = Depends(get_db_session),  Autho
 
 
 async def get_current_user( db: Session = Depends(get_db_session), Authorize: AuthJWT = Depends()) -> User:
+    if conf.ENVIRONMENT == "development":
+        user: User|None = db.query(User).filter(User.superuser==True).first()
+        if user is None:
+            user = User(name="Dev User", email="admin@admin", hashed_password="", superuser=True)
+            db.add(user)
+            db.commit()
+        return user
+
     Authorize.jwt_required()
 
     current_user_email = Authorize.get_jwt_subject()

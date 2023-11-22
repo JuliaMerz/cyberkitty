@@ -18,6 +18,8 @@ ENV REACT_APP_SERVER_MODE=$NODE_ENV
 # Copy frontend directory from our machine to container work directory
 COPY frontend .
 
+RUN yarn install
+
 # Build frontend to be ready for production deployment
 RUN yarn build --NODE_ENV=$NODE_ENV
 

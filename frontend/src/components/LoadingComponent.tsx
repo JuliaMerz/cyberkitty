@@ -36,8 +36,9 @@ const LoadingComponent: React.FC<LoadingComponentProps> = ({chunks}) => {
   // Determine the chunk to display
   const displayedChunk = (currentChunk === -1 || currentChunk > chunks.length - 1) ? chunks[chunks.length - 1][1] : chunks[currentChunk][1];
 
-  const displayIndex = currentChunk === -1 ? chunks.length - 1 : currentChunk;
-  const displayLabel = chunks[displayIndex][0];
+  // Cover for a race condition with setCurrentChunk
+  const displayIndex = (currentChunk === -1 || currentChunk >= chunks.length) ? chunks.length - 1 : currentChunk;
+  const displayLabel = chunks ? chunks[displayIndex][0] : '';
 
 
 

@@ -437,8 +437,8 @@ def generate_chapter_outline(chapter_outline: ChapterOutline, db_session: Sessio
                                      context=scene['context'])
         previous_scene = scene_outline
         db_session.add(scene_outline)
-    db_session.commit()
     chapter_outline.modified = False
+    db_session.commit()
     db_session.refresh(chapter_outline)
     # db_session.refresh(chapter_outline.story_outline)
 

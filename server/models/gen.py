@@ -151,12 +151,9 @@ class StoryOutline(StoryOutlineBase, table=True):
     # for generation, instead of using the original generated outline. see orechestration.py
     @property
     def computed_story_outline(self) -> str:
-        print('computing story outline')
-
         outs = self.chapter_outlines
         outs = filter(lambda x: not x.invalidated, outs)
         outs = sorted(outs, key=lambda x: x.chapter_number)
-        print('outlining check', [x.chapter_number for x in outs]) # just a debug check
         return "\n\n".join([x.computed_pre_gen for x in outs])
 
 
@@ -491,7 +488,6 @@ class Scene(SceneBase, table=True):
 
     @property
     def raw_text(self) -> str:
-        print('target1')
         if self.raw is None:
             return ''
         d = formats.parse_scene_text(self.raw)
@@ -499,12 +495,10 @@ class Scene(SceneBase, table=True):
         for section in d['sections']:
             out.append(section['content'])
         t = "\n\n".join(out)
-        print(t)
         return t
 
     @property
     def improved_text(self) -> str:
-        print('target2')
         if self.improved is None:
             return ''
         d = formats.parse_scene_text(self.improved)
@@ -512,7 +506,6 @@ class Scene(SceneBase, table=True):
         for section in d['sections']:
             out.append(section['content'])
         t = "\n\n".join(out)
-        print(t)
         return t
 
     modified: bool = Field(default=False)
@@ -531,7 +524,6 @@ class Scene(SceneBase, table=True):
     # workaround for sqlalchemy being a dick about one-to-one self references
     @property
     def next_scene(self) -> Optional["Scene"]:
-        print('nextxcene?', self.next_scenes is None)
         out = [x for x in filter(lambda x: not x.invalidated, self.next_scenes)]
         return out[0] if len(out)>0 else None
 

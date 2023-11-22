@@ -36,6 +36,7 @@ target_metadata = SQLModel.metadata
 # ... etc.
 
 
+
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode.
 
@@ -83,11 +84,10 @@ def run_migrations_online() -> None:
     }
 
     url = config.get_main_option("sqlalchemy.url")
-    print(url)
+    if conf.DB_DRIVER=="sqlite":
+        url = f"{conf.DB_DRIVER}:///{conf.DB_HOST}"
 
-    print(url_tokens)
     url = re.sub(r"\${(.+?)}", lambda m: url_tokens[m.group(1)], url)
-    print(url)
 
     connectable = create_engine(url)
 

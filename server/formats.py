@@ -418,7 +418,7 @@ def parse_scene_outline(string) -> SceneOutlineParsed:
     """
     Parse the scene outline format into a dictionary.
     """
-    scene_pattern = r"## Scene (\d+)\n(.*?)(?=\n|$)"
+    scene_pattern = r"## Scene:? (\d+)\n(.*?)(?=\n|$)"
     scenes = re.findall(scene_pattern, string, re.DOTALL)
 
     scene_outline: list[SceneOutlineInnerParsed] = [{'scene_number': scene_num, 'content': content.strip()}
@@ -457,7 +457,7 @@ def parse_scene_text(string) -> SceneTextParsed:
     """
     Parse the scene text format into a dictionary.
     """
-    section_pattern = r"### (Paragraph|Dialogue) (.*?)\n(.*?)(?=\n|$)"
+    section_pattern = r"### (Paragraph|Dialogue):? (.*?)\n(.*?)(?=\n|$)"
     sections = re.findall(section_pattern, string, re.DOTALL)
 
     scene_text: list[SceneTextInnerParsed] = [{'type': sec_type, 'description': desc.strip(
