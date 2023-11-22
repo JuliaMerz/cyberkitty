@@ -52,7 +52,7 @@ docker compose up
 
 Assuming everything went right, you'll be able to access the UI at `cyberkitty.localhost`.
 
-## Advanced
+### Advanced
 
 There will, at some point, be a multi-user production version (the user/permission system is already integrated
 with the queries/stories, it just needs token tracking and a stripe integration) but I am
