@@ -1,5 +1,6 @@
 ![cyberkitty](./cyberkitty-nb-small.png)
 # CyberKitty
+
 CyberKitty is an experimental human+ai hybrid novel editor that explores the question
 "What does the human creation of literature look like in a world of ubiquitous AI?".
 
@@ -13,8 +14,8 @@ In a world where words are cheap but ideas are precious, can we make high qualit
 produce and discover? In the same way programmers no longer write in assembly, can we produce
 higher level programming for writers? Can we elevate writers instead of replacing them?
 
-It's also an experiment in using GPT on long form texts, and the techniques it uses are broadly
-applicable to other long form text use cases.
+If I haven't hit my monthy API limit, you can try a single user (not private!) demo
+at [cyberkitty.ai](https://cyberkitty.ai).
 
 Using it to generate a story and customize an outline:
 
@@ -43,8 +44,15 @@ DB_DRIVER=sqlite
 ```
 I generated my secret key with `openssl rand -base64 32`.
 
-Then run `docker compose build` and `docker compose up`. Assuming everything went right,
-you'll be able to access the UI at `cyberkitty.localhost`.
+Then run
+```
+docker compose build
+docker compose up
+```
+
+Assuming everything went right, you'll be able to access the UI at `cyberkitty.localhost`.
+
+## Advanced
 
 There will, at some point, be a multi-user production version (the user/permission system is already integrated
 with the queries/stories, it just needs token tracking and a stripe integration) but I am
