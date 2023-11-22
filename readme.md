@@ -17,12 +17,15 @@ It's also an experiment in using GPT on long form texts, and the techniques it u
 applicable to other long form text use cases.
 
 Using it to generate a story:
+
 https://github.com/JuliaMerz/cyberkitty/assets/5734804/8818af08-6bbe-450c-b5dc-cbbfcd5238b0
 
 Using it to generate scenes:
+
 https://github.com/JuliaMerz/cyberkitty/assets/5734804/c4d170c4-36bb-470c-bb0a-d5a9c26baecf
 
 Editing and displaying text:
+
 https://github.com/JuliaMerz/cyberkitty/assets/5734804/40496869-0b92-4507-aaaf-96f103b7abb1
 
 
