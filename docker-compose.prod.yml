@@ -35,6 +35,8 @@ services:
       - "traefik.http.routers.fastapi.tls=true"
       - "traefik.http.routers.fastapi.tls.certresolver=letsencrypt"
       - "traefik.http.routers.fastapi.entrypoints=websecure"
+    depends_on:
+      - traefik
 
   frontend:
     build:

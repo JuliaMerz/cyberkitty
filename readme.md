@@ -16,11 +16,11 @@ higher level programming for writers? Can we elevate writers instead of replacin
 It's also an experiment in using GPT on long form texts, and the techniques it uses are broadly
 applicable to other long form text use cases.
 
-Using it to generate a story:
+Using it to generate a story and customize an outline:
 
 https://github.com/JuliaMerz/cyberkitty/assets/5734804/8818af08-6bbe-450c-b5dc-cbbfcd5238b0
 
-Using it to generate scenes:
+Using it to edit outlines and generate scenes:
 
 https://github.com/JuliaMerz/cyberkitty/assets/5734804/c4d170c4-36bb-470c-bb0a-d5a9c26baecf
 
