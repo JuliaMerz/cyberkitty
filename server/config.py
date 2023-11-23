@@ -32,10 +32,10 @@ class Settings(BaseSettings):
     VERIFICATION_EMAIL_TEMPLATE_ID: str = config.get('VERIFICATION_EMAIL_TEMPLATE_ID', '')
     EMAIL_FROM: str = config.get('EMAIL_FROM', '')
     DATABASE_URL: str = config.get('DB_DRIVER', 'sqlite')+ ":///"+config.get('DB_HOST', './test.db')
-    SYS_PROMPT_PREFIX: str = config.get('SYS_PROMPT_PREFIX')
+    SYS_PROMPT_PREFIX: str | None = config.get('SYS_PROMPT_PREFIX')
     MAX_RETRIES: int = config.get('MAX_RETRIES', 3)
     QUERY_MAX_TOKENS: float = config.get('QUERY_MAX_TOKENS', None)
-    QUERY_TEMPERATURE: float = config.get('QUERY_TEMPERATURE', 0)
+    QUERY_TEMPERATURE: float = config.get('QUERY_TEMPERATURE', 1)
     QUERY_FREQUENCY_PENALTY: float = config.get('QUERY_FREQUENCY_PENALTY', 0.1)
 
 

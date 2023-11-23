@@ -46,7 +46,7 @@ DB_DRIVER=sqlite
 #SYSTEM_PROMPT_PREFIX=<custom prefix for the system prompt>
 #MAX_RETRIES=<number of retries for the LLM API, defaults to 3>
 #QUERY_MAX_TOKENS=<max tokens for queries, defaults to None>
-#QUERY_TEMPERATURE=<temperature for queries, defaults to 0.9>
+#QUERY_TEMPERATURE=<temperature for queries, defaults to 1>
 #QUERY_FREQUENCY_PENALTY=<frequency penalty for queries, defaults to 0.1>
 ```
 
