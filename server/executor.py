@@ -11,15 +11,15 @@ from .config import get_settings
 
 conf = get_settings()
 
-client = OpenAI(api_key=conf.OPENAI_API_KEY)
+client = OpenAI(api_key=conf.OPENAI_API_KEY, base_url=conf.OPENAI_BASE_URL)
 
 
 CONTINUE_PROMPT = "Your last message got cutoff, without repeating yourself, please continue writing exactly where you left off."
 
-MAX_RETRIES = 3
-QUERY_MAX_TOKENS = None
-QUERY_TEMPERATURE = 0
-QUERY_FREQUENCY_PENALTY = 0.1
+MAX_RETRIES = conf.MAX_RETRIES
+QUERY_MAX_TOKENS = conf.QUERY_MAX_TOKENS
+QUERY_TEMPERATURE = conf.QUERY_TEMPERATURE
+QUERY_FREQUENCY_PENALTY = conf.QUERY_FREQUENCY_PENALTY
 
 
 @backoff.on_exception(backoff.expo, (openai.RateLimitError, openai.APITimeoutError))
@@ -58,6 +58,9 @@ def query_executor(db: Session, system_prompt: str, prompt: str, user: User, obj
     Side Effects:
     Generates a Query objects and associated ApiCall objects and saves them to the database.
     """
+
+    if conf.SYS_PROMPT_PREFIX:
+        system_prompt = conf.SYS_PROMPT_PREFIX + system_prompt
 
     messages = [
         {"role": "system", "content": system_prompt},

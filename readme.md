@@ -29,11 +29,11 @@ Editing and displaying text:
 
 https://github.com/JuliaMerz/cyberkitty/assets/5734804/40496869-0b92-4507-aaaf-96f103b7abb1
 
-
 ## Usage
+
 To run cyberkitty, you'll need to create a `.env` file.
 
-```
+```shell
 OPENAI_API_KEY=sk-<your OpenAI key>
 SECRET_KEY="<generate a secret key>"
 DB_HOST=test.db
@@ -41,11 +41,20 @@ DB_PASS=
 DB_USER=root
 DB_NAME=cyberkitty
 DB_DRIVER=sqlite
+# Optional configuration
+#OPENAI_BASE_URL=<custom base url for the LLM API, defaults to https://api.openai.com/v1>
+#SYSTEM_PROMPT_PREFIX=<custom prefix for the system prompt>
+#MAX_RETRIES=<number of retries for the LLM API, defaults to 3>
+#QUERY_MAX_TOKENS=<max tokens for queries, defaults to None>
+#QUERY_TEMPERATURE=<temperature for queries, defaults to 0.9>
+#QUERY_FREQUENCY_PENALTY=<frequency penalty for queries, defaults to 0.1>
 ```
+
 I generated my secret key with `openssl rand -base64 32`.
 
 Then run
-```
+
+```shell
 docker compose build
 docker compose up
 ```
@@ -65,10 +74,21 @@ If you'd like to make the installation accessible to non-localhost, just change 
 of `cyberkitty.localhost` in the `dockercompose.yml` to your domain name or IP—traefik will
 stop filtering the traffic and allow users access.
 
+#### Custom LLM API Server
+
+If you'd like to use a custom LLM server that's compatible with the OpenAI API,
+you can do so by setting the `OPENAI_BASE_URL` to the URL of your server which defaults
+to `https://api.openai.com/v1` for the OpenAI API.
+
+If you need to provide a custom system prompt, you can do so by setting the `SYSTEM_PROMPT_PREFIX`
+which will prefix the system prompt with your custom prompt.
+
 ## Techniques
+
 CyberKitty does a couple of things under the hood to make all of this possible.
 
 ### Tree Generation
+
 CyberKitty internally stores novels as a multi-level tree. In order to handle context limitations
 and limit token cost, it limits its generation inputs to the node being generated, it's previous
 sibling, and its parent nodes. By excluding aunts/uncles and cousins, we constrain costs and
@@ -79,24 +99,27 @@ based on the eventual target output length. For a full length novel, experimenta
 suggested that around five layers is appropriate.
 
 ### Context Lists
+
 This is pretty well understood, but by having it generate lists of themes and plotlins and other
 important information and feeding them back during generation, we can keep GPT significantly
 more focused than it woudl be otherwise.
 
 ### Iterative Generation + Self Editing
+
 One weakness of LLM's "reasoning" capabilities is that they are only retroactive. They
 can say "x and y happened earlier, so z happened now" They cannot say "z will happen in the future
 so y needs to happen now". One way of getting around this is to iteratively generate, which effectively
 moves the entire text into the past.
 
 We can build on this by asking it to make edits and by asking it to set intentions and make notes
-about its editing. Its desire to fulfill the request for "improvement notes" forces it to come up with ideas,
+about its editing. Its desire to fulfil the request for "improvement notes" forces it to come up with ideas,
 and those ideas being at the top of its generated output mean that when it's doing revisions it's constantly
-trying to fulfill the edit requests.
+trying to fulfil the edit requests.
 
 ![forward editing](./forward_edits.png)
 
 ### Prompt Engineering/Imitation
+
 By default GPT produces work that is the rough average of its inputs, applicable to its current output.
 We get about a 20% improvement in writing quality by modifying its system prompt to include "you are an author
 that writes tight, high quality prose." There's similar small adjustments like this sprinkled throughout
@@ -104,6 +127,7 @@ the underlying prompt engineering, including specific nudges for creating dialog
 perspective. Check out `prompt_generator.py` for a full rundown of the prompting algorithm.
 
 ### Human Interface
+
 Surprisingly, the harder step from here is making the *human* part of this tractable. AI
 can generate a novel draft in 10-20 minutes. The last time I planned a full novel it took me
 200 sticky notes and three days. Then many more days iterating as I wrote the novel.
@@ -118,6 +142,7 @@ when you've edited something that would normally be an input to AI generation, s
 if you want to rerender. (it does not yet allow for undo or keep you from rerendering over your own work, be warned!)
 
 ## Expectations and Outcomes
+
 The hardest part of working on this for me was not setting my own bar at "AI creates infinite books."
 Can GPT generate a full work of fiction? yes. Try it in the editor. It requires 500k or so tokens, 20ish bucks,
  and like every other current (Nov '23) GPT application it will produce mid-range prose, acceptable concepts,
@@ -128,27 +153,32 @@ as AI models improve as AI models improve. The biggest takeaway from running thi
 writer and non-writer friends is how much of a difference the UI makes. Despite ChatGPT already
 existing there were some genuine "wow" moments for people seeing their story ideas taken from
 small concept -> big concept -> outline. It's not robust enough yet as an editor for me to trust
-a full story with it, and as a writer I'm pretty obsessive about _my_ language and prose shinging
+a full story with it, and as a writer I'm pretty obsessive about _my_ language and prose shining
 through the final work, but this definitely gave me some inspiration for future experiments.
 
-# Issues
+## Issues
+
 If something breaks it's almost certainly related to the pipeline from LLM output -> structured data.
 Giving clear formatting instructions has, so far, worked about 70% of the time. The rest we've
 covered for with progressively loser and more flexible regex. A longer term solution might involve
 some kind of fuzzy matching or middle-dumb text comprehension like an NLP parser to bridge the gap,
 but that takes longer than a single flu to build.
 
-# Development
+## Development
+
 Typing for the frontend is generated with pydantic2ts, using the command:
-```
+
+```shell
 pydantic2ts --module server/main.py --output frontend/src/apiTypes.ts --json2ts-cmd "yarn json2ts" --exclude ApiCallBase --exclude QueryBase --exclude StoryBase --exclude StoryOutlineBase --exclude ChapterOutlineBase --exclude SceneOutlineBase --exclude SceneBase --exclude BaseSettings --exclude Settings --exclude BaseSQLModel --exclude SQLModel
 ```
 
 To run the dev server:
-```
+
+```shell
 pipenv install
 uvicorn server.main:app --reload --reload-dir server
 ```
+
 The `--reload-dir` is important here, since otherwise you'll monitor the entire `frontend` directory. I've also
 exported the pipenv to a `requirements.txt` for docker, so `pip` should work as a substitute for `pipenv`.
 
@@ -157,7 +187,8 @@ You'll also need to change some of the env variables.
 For the frontend just use the classic `yarn install; yarn start`
 
 If you make changes to the models you'll want to
-```
+
+```shell
 alembic revision --autogenerate -m "<message>"
 alembic upgrade head
 ```
