@@ -139,7 +139,7 @@ if we make it easy for the human brain to internalize and work with the novel.
 CyberKitty achieves this with a combination of collapsible rendering and a maximally intuitive editing interface. Just
 click to edit, unclick to autosave, and you can think about the next component. It also warns you
 when you've edited something that would normally be an input to AI generation, so you can decide
-if you want to rerender. (it does not yet allow for undo or keep you from rerendering over your own work, be warned!)
+if you want to regenerate. (it does not yet allow for undo or keep you from regenerating over your own work, be warned!)
 
 ## Expectations and Outcomes
 
@@ -148,8 +148,8 @@ Can GPT generate a full work of fiction? yes. Try it in the editor. It requires 
  and like every other current (Nov '23) GPT application it will produce mid-range prose, acceptable concepts,
 and occasional word soup.
 
-Prompting techniques get us closer to the state of the art, but fundamentally these things will improve
-as AI models improve as AI models improve. The biggest takeaway from running this through some
+Prompting techniques get us closer to maximum current capabilties, but fundamentally output will improve
+as AI models improve. The biggest takeaway from running this through some
 writer and non-writer friends is how much of a difference the UI makes. Despite ChatGPT already
 existing there were some genuine "wow" moments for people seeing their story ideas taken from
 small concept -> big concept -> outline. It's not robust enough yet as an editor for me to trust

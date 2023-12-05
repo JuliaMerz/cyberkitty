@@ -117,9 +117,9 @@ const Scene: React.FC<SceneProps> = ({sceneId, inner, scenePreview, forceText, o
     // This setup for three step version of writing process
     switch (currentOutlineType) {
       case 'raw':
-        return <div className="lo-head"><Markdown>{scene?.raw}</Markdown></div>;
+        return <div className="lo-head">{scene?.raw ? <Markdown>{scene?.raw}</Markdown> : "Click \"Generate New Draft\" to generate text for the scene."}</div>;
       case 'improved':
-        return <div className="lo-head"><Markdown>{"## Editing Notes \n" + scene?.edit_notes + "\n" + scene?.improved}</Markdown></div>;
+        return <div className="lo-head">{scene?.improved ? <Markdown>{"## Editing Notes \n" + scene?.edit_notes + "\n" + scene?.improved}</Markdown> : "Click \"Generate New Draft\" to generate text for the scene."}</div>;
       case 'final':
         return <div className="lo-head"><ModifiableMarkdown editCallback={textEditCallback} saveCallback={updateSceneCallback}>{scene?.final_text !== undefined ? scene.final_text : ''}</ModifiableMarkdown></div>
 

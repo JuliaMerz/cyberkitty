@@ -129,9 +129,9 @@ const ChapterOutline: React.FC<ChapterOutlineProps> = ({chapterOutlineId, inner,
     // This setup for three step version of outlining process
     switch (currentOutlineType) {
       case 'raw':
-        return <div className="wrapped"><Markdown>{chapterOutline?.raw}</Markdown></div>;
+        return <div className="wrapped">{chapterOutline?.raw ? <Markdown>{chapterOutline.raw}</Markdown> : "Click \"Generate Chapter Outline\" to create a chapter outline."}</div>;
       case 'improved':
-        return <div className="wrapped"><Markdown>{"## Editing Notes \n" + chapterOutline?.edit_notes + "\n" + chapterOutline?.improved}</Markdown></div>;
+        return <div className="wrapped">{chapterOutline?.improved ? (<Markdown>{"## Editing Notes \n" + chapterOutline?.edit_notes + "\n" + chapterOutline?.improved}</Markdown>) : "Click \"Generate Chapter Outline\" to create a chapter outline."}</div>;
       case 'outlines':
         console.log("chapterOutline: ", chapterOutline);
         console.log("chapterOutlinescenes: ", chapterOutline?.current_scene_outlines);

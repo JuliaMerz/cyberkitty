@@ -111,9 +111,9 @@ const SceneOutline: React.FC<SceneOutlineProps> = ({sceneOutlineId, inner, scene
     // This setup for three step version of outlining process
     switch (currentOutlineType) {
       case 'raw':
-        return <div className="wrapped"><Markdown>{sceneOutline?.raw}</Markdown></div>;
+        return <div className="wrapped">{sceneOutline?.raw ? <Markdown>{sceneOutline.raw}</Markdown> : "Click \"Generate Scene Outline\" to create a chapter outline."}</div>;
       case 'improved':
-        return <div className="wrapped"><Markdown>{"## Editing Notes \n" + sceneOutline?.edit_notes + "\n" + sceneOutline?.improved}</Markdown></div>;
+        return <div className="wrapped">{sceneOutline?.improved ? (<Markdown>{"## Editing Notes \n" + sceneOutline?.edit_notes + "\n" + sceneOutline?.improved}</Markdown>) : "Click \"Generate Scene Outline\" to create a chapter outline."}</div>;
       case 'editable':
       case 'outlines':
         if (sceneOutline && sceneOutline?.current_scene === null) {

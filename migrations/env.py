@@ -88,6 +88,7 @@ def run_migrations_online() -> None:
         url = f"{conf.DB_DRIVER}:///{conf.DB_HOST}"
 
     url = re.sub(r"\${(.+?)}", lambda m: url_tokens[m.group(1)], url)
+    print(url)
 
     connectable = create_engine(url)
 

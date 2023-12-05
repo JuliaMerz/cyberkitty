@@ -82,7 +82,7 @@ const StoryOutline: React.FC<StoryOutlineProps> = ({storyOutlineId}) => {
         return <div>
           <h2>Current Chapter Outlines</h2>
           {storyOutline?.current_chapter_outlines?.length === 0 ? <p>No chapter outlines yet. Generate a story outline first!</p> : null}
-          {storyOutline?.current_chapter_outlines?.map((chapterOutline: ChapterOutlineRead) => (
+          {storyOutline?.current_chapter_outlines?.sort((a, b) => a.chapter_number - b.chapter_number).map((chapterOutline: ChapterOutlineRead) => (
             <Collapsible key={chapterOutline.id} title={chapterOutline.chapter_number + " — " + chapterOutline.title} level={3}>
               <ChapterOutline key={chapterOutline.id} chapterOutlineId={chapterOutline.id} chapterOutlinePreview={chapterOutline} />
             </Collapsible>
