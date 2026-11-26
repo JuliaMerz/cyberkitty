@@ -18,7 +18,7 @@ export interface Cookie {
 export function deleteCookie (
   headers: Headers,
   name: string,
-  attributes?: { name?: string, domain?: string }
+  attributes?: { path?: string, domain?: string }
 ): void
 
 export function getCookies (headers: Headers): Record<string, string>
@@ -26,3 +26,5 @@ export function getCookies (headers: Headers): Record<string, string>
 export function getSetCookies (headers: Headers): Cookie[]
 
 export function setCookie (headers: Headers, cookie: Cookie): void
+
+export function parseCookie (cookie: string): Cookie | null

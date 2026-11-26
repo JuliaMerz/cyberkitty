@@ -1,0 +1,27 @@
+appId: com.cyberkitty.app
+productName: CyberKitty
+directories:
+  output: release
+  buildResources: build
+files:
+  - out/**
+  - package.json
+extraResources:
+  - from: resources/sample-book
+    to: sample-book
+asar: true
+mac:
+  target: [dmg, zip]
+  category: public.app-category.productivity
+  # Early builds are unsigned; testers right-click > Open the first time.
+  identity: null
+win:
+  target: [nsis]
+linux:
+  target: [AppImage]
+  category: Office
+publish:
+  provider: github
+  owner: JuliaMerz
+  repo: cyberkitty
+  releaseType: draft
