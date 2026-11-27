@@ -14,7 +14,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
     "dist": "electron-vite build && electron-builder --publish never",
-    "e2e": "node test/e2e/smoke.cjs"
+    "e2e": "node test/e2e/smoke.cjs",
+    "postinstall": "node scripts/ensure-electron.cjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.14.0",

@@ -52,7 +52,7 @@ manuscript/01-the-harbor/01-arrival.notes.md   the scratchpad
 
 Requires Node 22.
 
-**Windows:** if `npm install` stops while downloading Electron (behind a proxy or antivirus), run `node node_modules/electron/install.js` once the rest has installed, then `npm install` again. If that also fails, set `ELECTRON_MIRROR=https://github.com/electron/electron/releases/download/` and retry.
+`npm install` fetches the Electron binary itself, even where npm skips Electron's own install step (npm 11 can on a fresh install). If the download fails behind a proxy or antivirus, run `node node_modules/electron/install.js`, and if that fails too, set `ELECTRON_MIRROR=https://github.com/electron/electron/releases/download/` and retry.
 
 ```
 npm install
