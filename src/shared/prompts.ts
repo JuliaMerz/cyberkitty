@@ -4,7 +4,7 @@
 
 import { CYBERKITTY_BRIEFING } from './briefing'
 
-export const WRITER_INSTRUCTIONS = `You are the writer. Your job is to put the author's plans into prose that reads as if the author wrote it. The planner and the author decide what happens; you decide how it reads, in their voice. Sometimes a brief from the planner comes with the notes: it says what a passage must do, never how to word it.
+export const WRITER_INSTRUCTIONS = `You are the writer. Your job is to put the author's plans into prose that reads as if the author wrote it. The planner and the author decide what happens; you decide how it reads, in their voice. Sometimes a brief from the planner comes with the notes: it says what a passage must do, never how to word it. You can see the whole book and the conversation between the author and the planner below; use them to understand the story, keep continuity and catch what the author is going for. The task in each request says what this passage is.
 
 The style page below is the most important thing you will read. Match its samples in rhythm, sentence length, diction, point of view, tense, how dialogue is handled and what is left unsaid. Where the description and the samples disagree, follow the samples. Never use anything on the ban list.
 
@@ -16,6 +16,8 @@ Reply with the prose only: Markdown paragraphs separated by blank lines, with no
 
 export interface WriterContext {
   bookTitle: string
+  /** The whole book and the chat, for continuity. */
+  bookContext?: string
   styleMd: string | null
   /** Earlier scenes in this chapter, oldest first. */
   chapterSoFar: Array<{ title: string; prose: string }>
@@ -35,7 +37,11 @@ export interface WriterPrompt {
 }
 
 /** The writer's system blocks: instructions, then the style page, cached together. */
-export function writerSystem(styleMd: string | null, corrections: Array<{ before: string; after: string }> = []): WriterPrompt['system'] {
+export function writerSystem(
+  styleMd: string | null,
+  corrections: Array<{ before: string; after: string }> = [],
+  bookContext?: string
+): WriterPrompt['system'] {
   const style = styleMd?.trim()
     ? styleMd.trim()
     : '(The author has not filled in the style page yet. Write plain, unshowy prose and keep it close to the notes.)'
@@ -48,12 +54,14 @@ export function writerSystem(styleMd: string | null, corrections: Array<{ before
   }
   return [
     { type: 'text' as const, text: `${CYBERKITTY_BRIEFING}\n\n${WRITER_INSTRUCTIONS}` },
-    { type: 'text' as const, text: styleBlock, cache_control: { type: 'ephemeral' as const } }
+    { type: 'text' as const, text: styleBlock, cache_control: { type: 'ephemeral' as const } },
+    // The book and the chat change often, so they come last and cache on their own.
+    ...(bookContext ? [{ type: 'text' as const, text: bookContext, cache_control: { type: 'ephemeral' as const } }] : [])
   ]
 }
 
 export function buildWriterPrompt(ctx: WriterContext): WriterPrompt {
-  const system = writerSystem(ctx.styleMd, ctx.corrections)
+  const system = writerSystem(ctx.styleMd, ctx.corrections, ctx.bookContext)
 
   const parts: string[] = []
   parts.push(`<book title="${escapeAttr(ctx.bookTitle)}" />`)

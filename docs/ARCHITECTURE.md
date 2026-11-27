@@ -53,7 +53,25 @@ Stored with Electron `safeStorage` (OS keychain) in the user-data folder, never 
 
 ## Prompts
 
-Every Claude call starts with one shared briefing (`src/shared/briefing.ts`): what CyberKitty is, who does what (author, planner, writer, background), how the book is laid out, the marks, and the rules. Each agent's own instructions follow it: the planner's in `planner.ts`, the writer's in `prompts.ts`, and each background job's beside its code (`jobSystem`). The planner leads on direction (it puts concrete proposals on direction pages, chapter intents and notes as suggestions) and delegates prose to the writer through briefs.
+Every Claude call starts with one guide (`src/shared/briefing.ts`). The guide describes how the app works rather than how to behave:
+- who the Claudes are
+- the book on disk
+- the screen and the marks
+- every page
+- the chat and its links
+- each planner tool and what the author sees when it is used
+- background work
+- where the writer's output lands
+
+Each role's own instructions follow the guide: the planner's in `planner.ts`, the writer's in `prompts.ts`, and each background job's next to its code (`jobSystem`).
+
+Context:
+- **Planner.** It sees the whole book.
+- **Writer.** It also sees the whole book, through `writerBookContext`: direction, the bible, the manuscript with notes, open alerts, and the chat between the author and the planner. These come as a last system block that is cached on its own, after the style page.
+- **Ghost text.** It stays lean, because it has to be fast.
+- **Long books.** A full-length novel fits. Past roughly 150k tokens of manuscript, `fittedManuscript` drops notes first, then the prose outside the chapter in focus. Summaries are always kept.
+
+How much Claude volunteers is the author's setting and is passed to the planner as a fact. The prompts do not prescribe a leading or a quiet role.
 
 ## The planner
 

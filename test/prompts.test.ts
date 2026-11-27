@@ -47,3 +47,13 @@ describe('shared briefing', () => {
     expect(jobSystem('Do the job.')[0].text).toBe(`${CYBERKITTY_BRIEFING}\n\nDo the job.`)
   })
 })
+
+describe('writer context', () => {
+  it('puts the book and chat after the style page, cached on their own', async () => {
+    const { writerSystem } = await import('@shared/prompts')
+    const sys = writerSystem('style', [], '<book_snapshot/>')
+    expect(sys).toHaveLength(3)
+    expect(sys[1].text).toContain('style')
+    expect(sys[2]).toEqual({ type: 'text', text: '<book_snapshot/>', cache_control: { type: 'ephemeral' } })
+  })
+})

@@ -9,7 +9,7 @@ import { makeAnchor } from '@shared/anchors'
 import { writerSystem } from '@shared/prompts'
 import { cleanDraft } from '@shared/notes'
 import type { ChangeSpec, HunkDecision, MarkRecord } from '@shared/types'
-import { bookSnapshot } from './context'
+import { bookSnapshot, writerBookContext } from './context'
 import { describeError, RefusedError, streamText, structured } from './gateway'
 import { loadSettings } from './settings'
 import { job, newId, requireBook, send, state, writeDoc, addMarks } from './state'
@@ -101,6 +101,7 @@ export async function runChange(id: string): Promise<void> {
   const style = await b.readText('style.md')
   const corrections = await recentCorrections(10)
   const lane = (await loadSettings()).lanes.writer
+  const bookContext = await writerBookContext(change.chapterId)
   job({ id: `change-${id}`, label: `Rewriting for “${change.title}”`, state: 'running' })
   for (const sc of change.scenes) {
     const scene = (await b.scenes()).find((s) => s.id === sc.sceneId)
@@ -110,7 +111,7 @@ export async function runChange(id: string): Promise<void> {
       const before = await chapterSoFar(sc.sceneId)
       const res = await streamText({
         lane,
-        system: writerSystem(style, corrections),
+        system: writerSystem(style, corrections, bookContext),
         user: [
           before.length ? `<chapter_so_far>\n${before.map((s) => `<scene title="${s.title}">\n${s.prose}\n</scene>`).join('\n')}\n</chapter_so_far>` : '',
           `<change_spec>\n${change.spec}\n</change_spec>`,
