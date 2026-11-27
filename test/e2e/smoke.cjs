@@ -155,6 +155,11 @@ const shots = process.env.SHOTS || fs.mkdtempSync(path.join(os.tmpdir(), 'ck-sho
   await win.click('button:has-text("Merge into the book")')
   await win.waitForSelector('button:has-text("Undo the whole change")', { timeout: 10000 })
   assert.notEqual(fs.readFileSync(proseFile, 'utf8'), original, 'the merge changed the scene')
+  // Through accept all: rewrites of the author's paragraphs land as updated, new paragraphs as unreviewed.
+  const merged = JSON.parse(fs.readFileSync(path.join(book, '.cyberkitty/scenes/01-the-harbor/01-arrival.json'), 'utf8')).marks.filter((m) => m.origin.source === 'change')
+  const gull = merged.find((m) => m.anchor.quote.includes('gull'))
+  assert.equal(gull && gull.kind, 'unreviewed', 'a new paragraph lands as unreviewed')
+  assert.ok(merged.some((m) => m.kind === 'updated' && m.acceptedText), 'a rewritten paragraph lands as updated with what it replaced')
   await win.click('button:has-text("Undo the whole change")')
   await win.waitForTimeout(800)
   assert.equal(fs.readFileSync(proseFile, 'utf8'), original, 'undo restored the scene')

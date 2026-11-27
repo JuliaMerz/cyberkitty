@@ -363,8 +363,13 @@ export interface HunkDecision {
   sceneId: string
   /** The scene text after the author's per-hunk choices. */
   text: string
-  /** Paragraphs that came in through "accept all" and so land as updated. */
-  updatedParagraphs: string[]
+  /**
+   * Paragraphs that came in through "accept all" and rewrite text the author
+   * had: they land as updated, with the version they replace.
+   */
+  updatedParagraphs: Array<{ text: string; was: string }>
+  /** Paragraphs new in the change, taken through "accept all": they land as unreviewed. */
+  newParagraphs: string[]
   acceptedParagraphs: string[]
 }
 

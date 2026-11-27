@@ -135,7 +135,9 @@ export async function runChange(id: string): Promise<void> {
 
 /**
  * Merge the author's choices. Paragraphs accepted one by one count as
- * reviewed. Anything taken through "accept all" lands as updated.
+ * reviewed. Through "accept all", a paragraph that rewrites one the author
+ * had lands as updated (with the version it replaced); a new one lands as
+ * unreviewed.
  */
 export async function mergeChange(id: string, decisions: HunkDecision[]): Promise<void> {
   const b = requireBook()
@@ -148,9 +150,15 @@ export async function mergeChange(id: string, decisions: HunkDecision[]): Promis
     const at = new Date().toISOString()
     const marks: MarkRecord[] = []
     for (const p of d.updatedParagraphs) {
+      const i = d.text.indexOf(p.text)
+      if (i < 0) continue
+      marks.push({ id: newId('u'), kind: 'updated', file: 'prose', anchor: makeAnchor(d.text, i, i + p.text.length), origin: { source: 'change', note: change.title, at }, acceptedText: p.was })
+    }
+    // A paragraph with no earlier version was never accepted, so it is plain unreviewed.
+    for (const p of d.newParagraphs) {
       const i = d.text.indexOf(p)
       if (i < 0) continue
-      marks.push({ id: newId('u'), kind: 'updated', file: 'prose', anchor: makeAnchor(d.text, i, i + p.length), origin: { source: 'change', note: change.title, at } })
+      marks.push({ id: newId('u'), kind: 'unreviewed', file: 'prose', anchor: makeAnchor(d.text, i, i + p.length), origin: { source: 'change', note: change.title, at } })
     }
     await addMarks(ref, marks)
   }

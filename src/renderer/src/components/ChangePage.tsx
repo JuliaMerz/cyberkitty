@@ -61,18 +61,24 @@ export function ChangePage({ id }: { id: string }): React.JSX.Element {
     for (const [sid, hs] of Object.entries(hunks)) {
       const take = hs.map((_h, i) => choiceFor(sid, i) === 'take' || choiceFor(sid, i) === 'all')
       if (!take.some(Boolean)) continue
-      const updated: string[] = []
+      const updated: Array<{ text: string; was: string }> = []
+      const fresh: string[] = []
       const accepted: string[] = []
       hs.forEach((h, i) => {
         if (h.kind !== 'change') return
-        if (choiceFor(sid, i) === 'all') updated.push(...h.after)
         if (choiceFor(sid, i) === 'take') accepted.push(...h.after)
+        if (choiceFor(sid, i) !== 'all') return
+        // Pair rewritten paragraphs with the ones they replace; extras are new.
+        h.after.forEach((p, k) => {
+          if (k < h.before.length) updated.push({ text: p, was: k === h.after.length - 1 ? h.before.slice(k).join('\n\n') : h.before[k] })
+          else fresh.push(p)
+        })
       })
       const original = change.scenes.find((s) => s.sceneId === sid)!.original
       const heading = /^\s*#\s+[^\n]*/.exec(original)?.[0]
       let text = applyChoices(hs, take)
       if (heading && !text.trimStart().startsWith('#')) text = `${heading}\n\n${text}`
-      decisions.push({ sceneId: sid, text, updatedParagraphs: updated, acceptedParagraphs: accepted })
+      decisions.push({ sceneId: sid, text, updatedParagraphs: updated, newParagraphs: fresh, acceptedParagraphs: accepted })
     }
     await ck.mergeChange(change.id, decisions)
     setMerging(false)
@@ -110,7 +116,7 @@ export function ChangePage({ id }: { id: string }): React.JSX.Element {
           {change.status === 'review' && (
             <>
               {pending > 0 && <span className="mono muted">{pending} change{pending === 1 ? '' : 's'} to decide</span>}
-              <button className="btn" onClick={acceptAll} title="Everything you have not decided comes in as updated, so you can still review it on the page">
+              <button className="btn" onClick={acceptAll} title="Everything you have not decided comes in marked, so you can still review it on the page: updated where it rewrites your text, unreviewed where it is new">
                 Accept all
               </button>
               <button className="btn btn-primary" disabled={merging} onClick={() => void merge()}>
@@ -186,7 +192,7 @@ export function ChangePage({ id }: { id: string }): React.JSX.Element {
                         <button className={`btn small${choiceFor(s.sceneId, i) === 'keep' ? ' on' : ''}`} onClick={() => setChoice(s.sceneId, i, 'keep')}>
                           Keep mine
                         </button>
-                        {choiceFor(s.sceneId, i) === 'all' && <span className="mono muted">accepted with all; lands as updated</span>}
+                        {choiceFor(s.sceneId, i) === 'all' && <span className="mono muted">accepted with all; lands as updated, or unreviewed if new</span>}
                       </div>
                     )}
                   </div>

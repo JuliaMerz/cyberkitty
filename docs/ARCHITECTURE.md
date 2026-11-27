@@ -65,7 +65,7 @@ Stored with Electron `safeStorage` (OS keychain) in the user-data folder, never 
 
 ## Chapter-scale changes
 
-Spec (structured call, the author edits it), then the writer rewrites each scene against the spec into the change record, never the file. Review is a paragraph diff (`src/renderer/src/diff.ts`); each change is accepted or kept, and "accept all" brings the rest in as `updated` so it can still be reviewed on the page. The merge writes files between two history snapshots; undo writes the originals back.
+Spec (structured call, the author edits it), then the writer rewrites each scene against the spec into the change record, never the file. Review is a paragraph diff (`src/renderer/src/diff.ts`); each change is accepted or kept, and "accept all" brings the rest in marked so it can still be reviewed on the page: `updated` (with the replaced version) where it rewrites a paragraph the author had, `unreviewed` where the paragraph is new. The merge writes files between two history snapshots; undo writes the originals back.
 
 ## Testing
 
