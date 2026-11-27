@@ -1,8 +1,8 @@
 // Prompts for the writer lane. The writer produces every sentence meant for
-// the book. It gets the style page first (so it is cached), then the story
-// around the passage, then the notes to draft from.
+// the book. Its system blocks run from static to volatile for caching (see
+// writerSystem); the request itself carries the passage and the task.
 
-import { CYBERKITTY_BRIEFING } from './briefing'
+import { GUIDE_BLOCK } from './briefing'
 
 export const WRITER_INSTRUCTIONS = `You are the writer. Your job is to put the author's plans into prose that reads as if the author wrote it. The planner and the author decide what happens; you decide how it reads, in their voice. Sometimes a brief from the planner comes with the notes: it says what a passage must do, never how to word it. You can see the whole book and the conversation between the author and the planner below; use them to understand the story, keep continuity and catch what the author is going for. The task in each request says what this passage is.
 
@@ -17,7 +17,7 @@ Reply with the prose only: Markdown paragraphs separated by blank lines, with no
 export interface WriterContext {
   bookTitle: string
   /** The whole book and the chat, for continuity. */
-  bookContext?: string
+  bookContext?: WriterBook
   styleMd: string | null
   /** Earlier scenes in this chapter, oldest first. */
   chapterSoFar: Array<{ title: string; prose: string }>
@@ -31,33 +31,46 @@ export interface WriterContext {
   corrections?: Array<{ before: string; after: string }>
 }
 
+type CacheControl = { type: 'ephemeral'; ttl?: '5m' | '1h' }
+export type SystemBlock = { type: 'text'; text: string; cache_control?: CacheControl }
+
 export interface WriterPrompt {
-  system: Array<{ type: 'text'; text: string; cache_control?: { type: 'ephemeral' } }>
+  system: SystemBlock[]
   user: string
 }
 
-/** The writer's system blocks: instructions, then the style page, cached together. */
-export function writerSystem(
-  styleMd: string | null,
-  corrections: Array<{ before: string; after: string }> = [],
-  bookContext?: string
-): WriterPrompt['system'] {
+/** The frozen book and what changed since, from snapshot.ts. */
+export interface WriterBook {
+  snapshot: string
+  tail: string
+}
+
+/**
+ * The writer's system blocks, ordered from never-changing to always-changing
+ * so each cache breakpoint covers as much as possible:
+ * guide (1h) · instructions · style page (1h) · frozen book (1h) · tail (5m).
+ * The tail holds what changed since the snapshot, open alerts, the chat and
+ * the author's recent corrections; it is cached briefly so back-to-back calls
+ * (alternatives, a run of rewrites) reuse it.
+ */
+export function writerSystem(styleMd: string | null, corrections: Array<{ before: string; after: string }> = [], book?: WriterBook): SystemBlock[] {
   const style = styleMd?.trim()
     ? styleMd.trim()
     : '(The author has not filled in the style page yet. Write plain, unshowy prose and keep it close to the notes.)'
-  let styleBlock = `<style_page>\n${style}\n</style_page>`
-  if (corrections.length) {
-    styleBlock +=
-      '\n\n<corrections>\nRecent sentences Claude wrote and how the author rewrote them. Learn from the direction of each change.\n' +
+  const correctionsXml = corrections.length
+    ? '<corrections>\nRecent sentences Claude wrote and how the author rewrote them. Learn from the direction of each change.\n' +
       corrections.map((c) => `<pair>\n<claude>${c.before.trim()}</claude>\n<author>${c.after.trim()}</author>\n</pair>`).join('\n') +
       '\n</corrections>'
-  }
-  return [
-    { type: 'text' as const, text: `${CYBERKITTY_BRIEFING}\n\n${WRITER_INSTRUCTIONS}` },
-    { type: 'text' as const, text: styleBlock, cache_control: { type: 'ephemeral' as const } },
-    // The book and the chat change often, so they come last and cache on their own.
-    ...(bookContext ? [{ type: 'text' as const, text: bookContext, cache_control: { type: 'ephemeral' as const } }] : [])
+    : ''
+  const blocks: SystemBlock[] = [
+    GUIDE_BLOCK,
+    { type: 'text', text: WRITER_INSTRUCTIONS },
+    { type: 'text', text: `<style_page>\n${style}\n</style_page>`, cache_control: { type: 'ephemeral', ttl: '1h' } }
   ]
+  if (book) blocks.push({ type: 'text', text: book.snapshot, cache_control: { type: 'ephemeral', ttl: '1h' } })
+  const tail = [book?.tail ?? '', correctionsXml].filter(Boolean).join('\n\n')
+  if (tail) blocks.push({ type: 'text', text: tail, ...(book ? { cache_control: { type: 'ephemeral' as const } } : {}) })
+  return blocks
 }
 
 export function buildWriterPrompt(ctx: WriterContext): WriterPrompt {

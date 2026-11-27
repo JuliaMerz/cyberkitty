@@ -72,25 +72,33 @@ function today(): string {
   return new Date().toISOString().slice(0, 10)
 }
 
-export async function addSpend(usd: number): Promise<SpendSummary> {
-  let data: Record<string, number> = {}
+type Tokens = NonNullable<SpendSummary['tokens']>
+const tokensFile = (): string => path.join(dir(), 'tokens.json')
+
+async function readJsonFile<T>(file: string, fallback: T): Promise<T> {
   try {
-    data = JSON.parse(await fs.readFile(spendFile(), 'utf8'))
+    return JSON.parse(await fs.readFile(file, 'utf8')) as T
   } catch {
-    // first spend
+    return fallback
   }
+}
+
+export async function addSpend(usd: number, tokens?: Tokens): Promise<SpendSummary> {
+  const data = await readJsonFile<Record<string, number>>(spendFile(), {})
   data[today()] = (data[today()] ?? 0) + usd
   await fs.mkdir(dir(), { recursive: true })
   await fs.writeFile(spendFile(), JSON.stringify(data))
-  return { todayUsd: data[today()], capUsd: (await loadSettings()).dailyCapUsd }
+  const all = await readJsonFile<Record<string, Tokens>>(tokensFile(), {})
+  const cur = all[today()] ?? { uncached: 0, cacheRead: 0, cacheWrite: 0 }
+  if (tokens) {
+    all[today()] = { uncached: cur.uncached + tokens.uncached, cacheRead: cur.cacheRead + tokens.cacheRead, cacheWrite: cur.cacheWrite + tokens.cacheWrite }
+    await fs.writeFile(tokensFile(), JSON.stringify(all))
+  }
+  return { todayUsd: data[today()], capUsd: (await loadSettings()).dailyCapUsd, tokens: all[today()] ?? cur }
 }
 
 export async function getSpend(): Promise<SpendSummary> {
-  let todayUsd = 0
-  try {
-    todayUsd = JSON.parse(await fs.readFile(spendFile(), 'utf8'))[today()] ?? 0
-  } catch {
-    // nothing spent
-  }
-  return { todayUsd, capUsd: (await loadSettings()).dailyCapUsd }
+  const todayUsd = (await readJsonFile<Record<string, number>>(spendFile(), {}))[today()] ?? 0
+  const tokens = (await readJsonFile<Record<string, Tokens>>(tokensFile(), {}))[today()]
+  return { todayUsd, capUsd: (await loadSettings()).dailyCapUsd, tokens }
 }

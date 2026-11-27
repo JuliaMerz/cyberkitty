@@ -13,6 +13,7 @@ import { canCall, describeError, setSpendListener } from './gateway'
 import { send, state } from './state'
 import { alertStore, bibleStore, changeStore, chatStore, diagramStore, logCorrection, summaryStore } from './stores'
 import { resetPlanner, sendChat, stopChat } from './planner'
+import { resetSnapshots } from './snapshot'
 import { deleteEntry, saveEntry } from './bible'
 import { addTodo, refreshAlerts, setAlertStatus } from './alerts'
 import { settle } from './settling'
@@ -57,6 +58,7 @@ async function openBook(dir: string): Promise<BookTree | null> {
   if (!(await Book.isBook(dir))) return null
   await watcher?.close()
   resetPlanner()
+  resetSnapshots()
   state.book = new Book(dir)
   state.history = new History(dir)
   state.lastWritten.clear()
@@ -265,6 +267,7 @@ function registerIpc(): void {
     await watcher?.close()
     watcher = null
     resetPlanner()
+    resetSnapshots()
     state.book = null
     state.history = null
     state.openDocs.clear()
@@ -432,7 +435,7 @@ async function createWindow(): Promise<void> {
 app.whenReady().then(async () => {
   registerIpc()
   buildMenu()
-  setSpendListener((todayUsd, capUsd) => send('spend', { todayUsd, capUsd }))
+  setSpendListener((s) => send('spend', s))
   const settings = await loadSettings()
   const initial = process.env.CYBERKITTY_BOOK ?? settings.lastBook
   if (initial) await openBook(initial).catch(() => null)

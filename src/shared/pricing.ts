@@ -22,16 +22,27 @@ export interface UsageLike {
   output_tokens?: number | null
   cache_read_input_tokens?: number | null
   cache_creation_input_tokens?: number | null
+  /** Cache writes by lifetime: 5-minute writes cost 1.25x input, 1-hour writes 2x. */
+  cache_creation?: { ephemeral_5m_input_tokens?: number | null; ephemeral_1h_input_tokens?: number | null } | null
+}
+
+/** Prompt tokens by how they were billed: uncached, read from cache, written to it. */
+export function promptTokens(u: UsageLike): { uncached: number; cacheRead: number; cacheWrite: number } {
+  return { uncached: u.input_tokens ?? 0, cacheRead: u.cache_read_input_tokens ?? 0, cacheWrite: u.cache_creation_input_tokens ?? 0 }
 }
 
 export function costUsd(model: string, u: UsageLike): number {
   const p = PRICES[model] ?? FALLBACK
   const m = 1_000_000
+  const written = u.cache_creation_input_tokens ?? 0
+  const oneHour = u.cache_creation?.ephemeral_1h_input_tokens ?? 0
+  const fiveMin = u.cache_creation ? (u.cache_creation.ephemeral_5m_input_tokens ?? 0) : written
   return (
     ((u.input_tokens ?? 0) * p.input +
       (u.output_tokens ?? 0) * p.output +
       (u.cache_read_input_tokens ?? 0) * p.cacheRead +
-      (u.cache_creation_input_tokens ?? 0) * p.input * 1.25) /
+      fiveMin * p.input * 1.25 +
+      oneHour * p.input * 2) /
     m
   )
 }

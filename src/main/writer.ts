@@ -18,15 +18,11 @@ import { loadSettings } from './settings'
 import { requireBook } from './state'
 import { recentCorrections } from './stores'
 import { stripHeading } from './project'
-import { writerBookContext } from './context'
+import { writerBookContext } from './snapshot'
 
 async function styleAndCorrections(): Promise<{ style: string | null; corrections: Array<{ before: string; after: string }> }> {
   const b = requireBook()
   return { style: await b.readText('style.md'), corrections: await recentCorrections(10) }
-}
-
-function chapterOf(sceneId: string): string {
-  return sceneId.split('/').slice(0, -1).join('/')
 }
 
 export async function chapterSoFar(sceneId: string): Promise<Array<{ title: string; prose: string }>> {
@@ -55,7 +51,7 @@ export async function runDraft(
     const { style, corrections } = await styleAndCorrections()
     const prompt = buildWriterPrompt({
       bookTitle: await b.title(),
-      bookContext: await writerBookContext(scene?.chapterId),
+      bookContext: await writerBookContext(),
       styleMd: style,
       chapterSoFar: await chapterSoFar(req.sceneId),
       sceneTitle: scene?.title ?? '',
@@ -101,7 +97,7 @@ export async function alternatives(req: AlternativesRequest): Promise<string[]> 
   const lane = (await loadSettings()).lanes.writerQuick
   const res = await structured<{ alternatives: string[] }>({
     lane,
-    system: writerSystem(style, corrections, await writerBookContext(chapterOf(req.sceneId))),
+    system: writerSystem(style, corrections, await writerBookContext()),
     user: buildAlternativesPrompt(req),
     schema: ALTERNATIVES_SCHEMA,
     maxTokens: 4000,
@@ -116,7 +112,7 @@ export async function rewrite(req: RewriteRequest & { brief?: string }, laneName
   const instruction = req.tool ? HUMANIZE[req.tool] : req.instruction ?? 'Improve it, staying in the author’s voice.'
   const res = await streamText({
     lane,
-    system: writerSystem(style, corrections, await writerBookContext(req.ref.kind === 'scene' ? chapterOf(req.ref.sceneId) : req.ref.kind === 'chapter' ? req.ref.chapterId : undefined)),
+    system: writerSystem(style, corrections, await writerBookContext()),
     user: buildRewritePrompt({ context: req.context, span: req.quote, instruction, brief: req.brief }),
     maxTokens: 8000
   })

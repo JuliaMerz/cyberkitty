@@ -9,7 +9,8 @@ import { makeAnchor } from '@shared/anchors'
 import { writerSystem } from '@shared/prompts'
 import { cleanDraft } from '@shared/notes'
 import type { ChangeSpec, HunkDecision, MarkRecord } from '@shared/types'
-import { bookSnapshot, writerBookContext } from './context'
+import { currentBookText, writerBookContext } from './snapshot'
+import { openAlertsText } from './context'
 import { describeError, RefusedError, streamText, structured } from './gateway'
 import { loadSettings } from './settings'
 import { job, newId, requireBook, send, state, writeDoc, addMarks } from './state'
@@ -52,7 +53,7 @@ export async function proposeChange(chapterId: string, request: string): Promise
   const res = await structured<{ title: string; spec: string; scenes: string[]; effects: Array<{ scene_id: string; quote: string; note: string }> }>({
     lane,
     system: jobSystem('You write change specs for a novel in CyberKitty. A change spec is short and concrete. It names what changes, scene by scene, and what must not change. It never contains prose for the book; the writer writes that from the spec.'),
-    user: `${await bookSnapshot()}\n\n<chapter id="${chapterId}" title="${chapter.title}" />\n\n<request>\n${request}\n</request>`,
+    user: `${await currentBookText()}\n\n${await openAlertsText()}\n\n<chapter id="${chapterId}" title="${chapter.title}" />\n\n<request>\n${request}\n</request>`,
     schema: SPEC_SCHEMA,
     fakeKey: 'change'
   })
@@ -101,7 +102,9 @@ export async function runChange(id: string): Promise<void> {
   const style = await b.readText('style.md')
   const corrections = await recentCorrections(10)
   const lane = (await loadSettings()).lanes.writer
-  const bookContext = await writerBookContext(change.chapterId)
+  // One book context for the whole run: the manuscript does not change until
+  // the merge, so every scene's call shares the same cached prefix.
+  const bookContext = await writerBookContext()
   job({ id: `change-${id}`, label: `Rewriting for “${change.title}”`, state: 'running' })
   for (const sc of change.scenes) {
     const scene = (await b.scenes()).find((s) => s.id === sc.sceneId)

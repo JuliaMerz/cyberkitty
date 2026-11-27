@@ -7,7 +7,8 @@
 import { jobSystem } from '@shared/briefing'
 import { createHash } from 'node:crypto'
 import type { DocRef, PageName, SceneFile } from '@shared/types'
-import { bibleText, directionText, manuscriptText } from './context'
+import { manuscriptText } from './context'
+import { bookContextFor } from './snapshot'
 import { describeError, structured } from './gateway'
 import { fileAlert, refreshAlerts } from './alerts'
 import { loadSettings } from './settings'
@@ -86,10 +87,13 @@ export async function scan(opts: { force?: boolean } = {}): Promise<void> {
     const dismissedXml = dismissed.length
       ? `<dismissed>\n${dismissed.map((a) => `- ${a.title}: ${a.sides.map((s) => `“${s.quote}”`).join(' vs ')}`).join('\n')}\n</dismissed>`
       : ''
+    // Scans come ten minutes or more apart, so the book rides in a frozen
+    // snapshot cached for an hour, and only what changed since is sent fresh.
+    const book = await bookContextFor('scan', { style: false, notes: false })
     const res = await structured<{ findings: Array<{ kind: 'continuity' | 'timeline' | 'direction' | 'thread'; title: string; explanation: string; fix: string; side_a: Side; side_b: Side }> }>({
       lane: (await loadSettings()).lanes.background,
-      system: jobSystem(SCAN_SYSTEM),
-      user: `${await directionText()}\n\n${await bibleText()}\n\n${manuscript}\n\n${dismissedXml}\n\n<task>List the findings.</task>`,
+      system: [...jobSystem(SCAN_SYSTEM), { type: 'text', text: book.snapshot, cache_control: { type: 'ephemeral', ttl: '1h' } }],
+      user: `${book.changes}\n\n${dismissedXml}\n\n<task>List the findings. Where a document appears both in the snapshot and in the changes, only its current text counts.</task>`,
       schema: SCAN_SCHEMA,
       maxTokens: 32000,
       background: true,

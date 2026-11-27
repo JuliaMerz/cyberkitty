@@ -24,6 +24,8 @@ export interface LiveMark {
 /** What an editor can ask of the page around it. */
 export interface EditorHooks {
   alternatives?: (view: EditorView, from: number, to: number) => void
+  /** Other versions of a suggestion's proposed words; picking one accepts it. */
+  suggestionAlternatives?: (view: EditorView, record: MarkRecord, from: number, to: number) => void
   attach?: (view: EditorView, from: number, to: number) => void
   openAlert?: (id: string) => void
   humanize?: (view: EditorView, tool: string, from: number, to: number) => void
@@ -166,11 +168,11 @@ export function markDraftedParagraphs(view: EditorView, from: number, to: number
   view.dispatch({ effects: addMarks.of(add) })
 }
 
-/** Put a suggestion's words into the file. Accepting is reviewing, so no mark stays. */
-export function acceptSuggestion(view: EditorView, id: string): void {
+/** Put a suggestion's words (or a picked alternative to them) into the file. Accepting is reviewing, so no mark stays. */
+export function acceptSuggestion(view: EditorView, id: string, instead?: string): void {
   const m = liveMarks(view.state).find((x) => x.record.id === id)
   if (!m || m.record.replacement === undefined) return
-  const rep = m.record.replacement
+  const rep = instead ?? m.record.replacement
   if (m.record.insert === 'after') {
     const doc = view.state.doc
     const line = doc.lineAt(m.to)
@@ -257,9 +259,16 @@ export const markHover = hoverTooltip(
           dom.appendChild(b)
         }
         const rec = mark.record
+        const chat = (): void => {
+          if (hooks.attach) button('Talk about this in chat', ICONS.chat, 'chat', () => hooks.attach!(view, mark.from, mark.to))
+        }
         if (rec.kind === 'suggested') {
+          // Accept, alternatives, chat, reject: talking it over comes before deciding.
           button('Accept', ICONS.accept, 'accept', () => acceptSuggestion(view, rec.id))
+          if (isProse && hooks.suggestionAlternatives) button('Other ways to say this', ICONS.alt, 'alt', () => hooks.suggestionAlternatives!(view, rec, mark.from, mark.to))
+          chat()
           button('Reject', ICONS.reject, 'reject', () => view.dispatch({ effects: removeMark.of(rec.id) }))
+          return { dom, offset: { x: 6, y: -29 } }
         } else if (rec.kind === 'conflict') {
           if (rec.alertId && hooks.openAlert) button('Open the alert', ICONS.alert, 'alert', () => hooks.openAlert!(rec.alertId!))
         } else {
@@ -271,7 +280,7 @@ export const markHover = hoverTooltip(
             })
           }
         }
-        if (hooks.attach) button('Talk about this in chat', ICONS.chat, 'chat', () => hooks.attach!(view, mark.from, mark.to))
+        chat()
         // Sit on the last line of the shade, just past its end.
         return { dom, offset: { x: 6, y: -29 } }
       }

@@ -1,18 +1,38 @@
 import { useEffect, useState } from 'react'
 import { DEFAULT_SETTINGS, LANE_LABELS } from '@shared/defaults'
 import { MODEL_CHOICES } from '@shared/pricing'
-import type { Effort, Lane, Settings } from '@shared/types'
+import type { Effort, Lane, Settings, SpendSummary } from '@shared/types'
 
 const ck = window.ck
 const EFFORTS: Effort[] = ['low', 'medium', 'high', 'xhigh', 'max']
+
+function tokens(n: number): string {
+  return n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${Math.round(n / 1000)}k` : String(n)
+}
+
+/** How today's prompt tokens were billed. Mostly "read from cache" means caching works. */
+function CacheLine({ spend }: { spend: SpendSummary | null }): React.JSX.Element | null {
+  const t = spend?.tokens
+  if (!t || !spend) return null
+  const total = t.uncached + t.cacheRead + t.cacheWrite
+  if (!total) return null
+  return (
+    <p className="muted mono small" data-testid="cache-line">
+      Today: ${spend.todayUsd.toFixed(2)}. Of {tokens(total)} prompt tokens, {Math.round((t.cacheRead / total) * 100)}% were read from cache, {tokens(t.cacheWrite)} written to it and {tokens(t.uncached)} sent uncached.
+    </p>
+  )
+}
 
 export function SettingsPage({ settings, onChange }: { settings: Settings; onChange: (s: Settings) => void }): React.JSX.Element {
   const [hasKey, setHasKey] = useState<boolean | null>(null)
   const [key, setKey] = useState('')
   const [saved, setSaved] = useState(false)
+  const [spend, setSpend] = useState<SpendSummary | null>(null)
 
   useEffect(() => {
     void ck.hasApiKey().then(setHasKey)
+    void ck.getSpend().then(setSpend)
+    return ck.onSpend(setSpend)
   }, [])
 
   async function update(patch: Partial<Settings>): Promise<void> {
@@ -113,6 +133,7 @@ export function SettingsPage({ settings, onChange }: { settings: Settings; onCha
               onChange={(e) => void update({ dailyCapUsd: Math.max(0, Number(e.target.value) || 0) })}
             />
           </label>
+          <CacheLine spend={spend} />
         </section>
 
         <section>

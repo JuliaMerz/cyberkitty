@@ -704,15 +704,16 @@ button {
 /* ---- v1 additions ---------------------------------------------------------- */
 
 :root {
-  --tell-line: #c9a227;
+  --tell-line: #9aa1b2;
   --gap-line: #9aa1b2;
   --orange-chip: #fdf1e4;
   --orange-chip-line: #f0c9a6;
 }
 .ck-tell {
   background: none;
-  text-decoration: underline wavy var(--tell-line);
-  text-decoration-thickness: 1px;
+  /* Quiet on purpose: a wavy line reads as a spelling error. */
+  text-decoration: underline dotted var(--tell-line);
+  text-decoration-thickness: 1.5px;
   text-underline-offset: 3px;
 }
 .ck-gap {
@@ -1457,4 +1458,14 @@ textarea.field {
 }
 .modal-label {
   font-weight: 600;
+}
+
+.alt-accepted {
+  border-bottom: 1px solid var(--line, #e3e5ea);
+}
+.alt-label {
+  display: block;
+  font-size: 11px;
+  color: var(--ink-3);
+  margin-bottom: 2px;
 }

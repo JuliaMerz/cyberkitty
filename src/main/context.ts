@@ -1,6 +1,7 @@
-// The book as Claude reads it: direction pages, style page, outline, bible,
-// summaries and the manuscript, in the order the planner's cache wants
-// (stable first). Every scene is labelled with its id so Claude can link to it.
+// Pieces of the book as Claude reads them: direction pages, the bible, the
+// manuscript, open alerts and the chat. Every scene is labelled with its id so
+// Claude can link to it. Whole-book snapshots for cached prompts live in
+// snapshot.ts.
 
 import { DIRECTION_PAGES, type BibleEntry } from '@shared/types'
 import { requireBook } from './state'
@@ -41,21 +42,6 @@ export async function bibleText(): Promise<string> {
   return `<bible>\n<planned_by_author>\n${planned || '(none)'}\n</planned_by_author>\n<entries>\n${entries.map(bibleLine).join('\n') || '(none yet)'}\n</entries>\n</bible>`
 }
 
-/**
- * Roughly 150k tokens of manuscript. A full-length novel fits; past that, the
- * snapshot keeps every summary but drops notes, then prose outside the
- * chapter in focus, so a very long book still fits in context.
- */
-const MANUSCRIPT_BUDGET = 600_000
-
-export async function fittedManuscript(focusChapter?: string): Promise<string> {
-  const full = await manuscriptText({ notes: true })
-  if (full.length <= MANUSCRIPT_BUDGET) return full
-  const lean = await manuscriptText({ notes: false })
-  if (lean.length <= MANUSCRIPT_BUDGET) return lean
-  return manuscriptText({ notes: false, proseOnlyIn: focusChapter ?? '' })
-}
-
 export async function manuscriptText(opts: { notes: boolean; proseOnlyIn?: string } = { notes: true }): Promise<string> {
   const b = requireBook()
   const tree = await b.tree()
@@ -86,22 +72,6 @@ export async function openAlertsText(): Promise<string> {
   return `<open_alerts>\n${alerts.map((a) => `- id=${a.id} ${a.kind}: ${a.title}. ${a.explanation}`).join('\n')}\n</open_alerts>`
 }
 
-export async function bookSnapshot(opts: { style?: boolean; focusChapter?: string } = {}): Promise<string> {
-  const b = requireBook()
-  const style = (await b.readPage('style.md')).trim()
-  return [
-    `<book_snapshot taken="${new Date().toISOString()}">`,
-    opts.style === false ? '' : `<style_page>\n${style || '(empty)'}\n</style_page>`,
-    await directionText(),
-    await bibleText(),
-    await fittedManuscript(opts.focusChapter),
-    await openAlertsText(),
-    '</book_snapshot>'
-  ]
-    .filter(Boolean)
-    .join('\n\n')
-}
-
 /** The conversation between the author and the planner, newest last, within a budget. */
 export async function chatText(budget = 120_000): Promise<string> {
   const entries = await chatStore.read()
@@ -118,9 +88,4 @@ export async function chatText(budget = 120_000): Promise<string> {
     lines.unshift(line)
   }
   return lines.length ? `<chat>\n${lines.join('\n')}\n</chat>` : '<chat>(no conversation yet)</chat>'
-}
-
-/** What the writer sees besides its style page: the whole book and the chat. */
-export async function writerBookContext(focusChapter?: string): Promise<string> {
-  return `${await bookSnapshot({ style: false, focusChapter })}\n\n${await chatText()}`
 }

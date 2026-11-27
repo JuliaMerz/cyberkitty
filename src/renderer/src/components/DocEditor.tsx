@@ -9,6 +9,7 @@ import { EditorView, type ViewUpdate } from '@codemirror/view'
 import { healMarks, makeAnchor, paragraphs } from '@shared/anchors'
 import { docKey, type DocRef, type HumanizeTool, type MarkRecord, type Place } from '@shared/types'
 import {
+  acceptSuggestion,
   addMarks,
   editorHooks,
   exportMarks,
@@ -51,6 +52,10 @@ interface AltState {
   y: number
   options: string[] | null
   error?: string
+  /** Set when the alternatives are for a suggestion's proposed words. */
+  suggestionId?: string
+  /** On updated text: the version the author had accepted, offered first. */
+  accepted?: { from: number; to: number; text: string }
 }
 
 export function DocEditor(props: Props): React.JSX.Element {
@@ -129,13 +134,27 @@ export function DocEditor(props: Props): React.JSX.Element {
         const c = v.coordsAtPos(from)
         const box = host.current?.getBoundingClientRect()
         if (!c || !box) return
-        setAlt({ from, to, x: c.left - box.left, y: c.bottom - box.top + 4, options: null })
         const sentence = v.state.sliceDoc(from, to)
         const line = v.state.doc.lineAt(from)
         const mark = liveMarks(v.state).find((m) => m.from <= from && m.to >= to)
+        const accepted = mark?.record.kind === 'updated' && mark.record.acceptedText ? { from: mark.from, to: mark.to, text: mark.record.acceptedText } : undefined
+        setAlt({ from, to, x: c.left - box.left, y: c.bottom - box.top + 4, options: null, accepted })
         void ck
           .alternatives({ sceneId: docRef.kind === 'scene' ? docRef.sceneId : '', sentence, paragraph: line.text, acceptedText: mark?.record.acceptedText })
           .then((r) => setAlt((a) => (a && a.from === from ? { ...a, options: r.ok ? (r.value ?? []) : [], error: r.ok ? undefined : r.error } : a)))
+      },
+      suggestionAlternatives: (v, rec, from, to) => {
+        const c = v.coordsAtPos(to)
+        const box = host.current?.getBoundingClientRect()
+        if (!c || !box || rec.replacement === undefined) return
+        setAlt({ from, to, x: c.left - box.left, y: c.bottom - box.top + 4, options: null, suggestionId: rec.id })
+        const line = v.state.doc.lineAt(from)
+        // The paragraph as it would read with the suggestion accepted.
+        const paragraph =
+          rec.insert === 'after' ? rec.replacement : line.text.slice(0, from - line.from) + rec.replacement + line.text.slice(Math.min(line.length, to - line.from))
+        void ck
+          .alternatives({ sceneId: docRef.kind === 'scene' ? docRef.sceneId : '', sentence: rec.replacement, paragraph })
+          .then((r) => setAlt((a) => (a && a.suggestionId === rec.id ? { ...a, options: r.ok ? (r.value ?? []) : [], error: r.ok ? undefined : r.error } : a)))
       },
       humanize: (v, tool, from, to) => {
         const quote = v.state.sliceDoc(from, to)
@@ -279,7 +298,17 @@ export function DocEditor(props: Props): React.JSX.Element {
     const v = viewRef.current
     if (!v || !alt) return
     // Choosing an alternative is the author's choice, so it lands reviewed.
-    v.dispatch({ changes: { from: alt.from, to: alt.to, insert: option }, annotations: machineEdit.of('claude') })
+    if (alt.suggestionId) acceptSuggestion(v, alt.suggestionId, option)
+    else v.dispatch({ changes: { from: alt.from, to: alt.to, insert: option }, annotations: machineEdit.of('claude') })
+    setAlt(null)
+    v.focus()
+  }
+
+  /** Go back to the version the author had accepted before Claude updated it. */
+  function restoreAccepted(): void {
+    const v = viewRef.current
+    if (!v || !alt?.accepted) return
+    v.dispatch({ changes: { from: alt.accepted.from, to: alt.accepted.to, insert: alt.accepted.text }, annotations: machineEdit.of('claude') })
     setAlt(null)
     v.focus()
   }
@@ -295,6 +324,12 @@ export function DocEditor(props: Props): React.JSX.Element {
               ×
             </button>
           </div>
+          {alt.accepted && (
+            <button className="alt-option alt-accepted" onClick={restoreAccepted} title="Put back the version you had accepted">
+              <span className="alt-label mono">The version you accepted</span>
+              {alt.accepted.text}
+            </button>
+          )}
           {alt.options === null && <div className="alt-loading">Asking the writer…</div>}
           {alt.error && <div className="alt-loading">{alt.error}</div>}
           {alt.options?.length === 0 && !alt.error && <div className="alt-loading">No alternatives came back.</div>}

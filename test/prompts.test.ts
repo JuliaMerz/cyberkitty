@@ -15,7 +15,7 @@ const base = {
 describe('writer prompt', () => {
   it('caches the style page as the last system block', () => {
     const p = buildWriterPrompt(base)
-    expect(p.system.at(-1)?.cache_control).toEqual({ type: 'ephemeral' })
+    expect(p.system.at(-1)?.cache_control).toEqual({ type: 'ephemeral', ttl: '1h' })
     expect(p.system.at(-1)?.text).toContain('Short sentences.')
   })
 
@@ -43,17 +43,18 @@ describe('shared briefing', () => {
   it('opens the writer system prompt and every job prompt', async () => {
     const { CYBERKITTY_BRIEFING, jobSystem } = await import('@shared/briefing')
     const { writerSystem } = await import('@shared/prompts')
-    expect(writerSystem('x')[0].text.startsWith(CYBERKITTY_BRIEFING)).toBe(true)
-    expect(jobSystem('Do the job.')[0].text).toBe(`${CYBERKITTY_BRIEFING}\n\nDo the job.`)
+    expect(writerSystem('x')[0].text).toBe(CYBERKITTY_BRIEFING)
+    expect(jobSystem('Do the job.').map((b) => b.text)).toEqual([CYBERKITTY_BRIEFING, 'Do the job.'])
   })
 })
 
 describe('writer context', () => {
-  it('puts the book and chat after the style page, cached on their own', async () => {
+  it('puts the frozen book after the style page and what changed after that', async () => {
     const { writerSystem } = await import('@shared/prompts')
-    const sys = writerSystem('style', [], '<book_snapshot/>')
-    expect(sys).toHaveLength(3)
-    expect(sys[1].text).toContain('style')
-    expect(sys[2]).toEqual({ type: 'text', text: '<book_snapshot/>', cache_control: { type: 'ephemeral' } })
+    const sys = writerSystem('style', [], { snapshot: '<book_snapshot/>', tail: '<chat/>' })
+    expect(sys).toHaveLength(5)
+    expect(sys[2].text).toContain('style')
+    expect(sys[3]).toEqual({ type: 'text', text: '<book_snapshot/>', cache_control: { type: 'ephemeral', ttl: '1h' } })
+    expect(sys[4]).toEqual({ type: 'text', text: '<chat/>', cache_control: { type: 'ephemeral' } })
   })
 })

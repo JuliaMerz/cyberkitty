@@ -97,9 +97,16 @@ const shots = process.env.SHOTS || fs.mkdtempSync(path.join(os.tmpdir(), 'ck-sho
   await win.locator('.ck-editor-prose .ck-sug-replace').hover()
   await win.waitForSelector('.ck-hover-btn.reject')
   await win.screenshot({ path: path.join(shots, '6-suggestion.png') })
-  await win.locator('.ck-hover-btn.accept').click()
+  // The design's order on a suggestion: accept, alternatives, chat, reject.
+  const order = await win.locator('.ck-hover .ck-hover-btn').evaluateAll((els) => els.map((e) => [...e.classList].find((c) => c !== 'ck-hover-btn')))
+  assert.deepEqual(order, ['accept', 'alt', 'chat', 'reject'], `suggestion hover buttons: ${order}`)
+  // Picking an alternative to the proposed words accepts it.
+  await win.locator('.ck-hover-btn.alt').click()
+  await win.waitForSelector('.alt-option')
+  await win.locator('.alt-option').first().click()
   await win.waitForTimeout(800)
-  assert.match(fs.readFileSync(proseFile, 'utf8'), /A line added in another editor, plainly\./)
+  assert.match(fs.readFileSync(proseFile, 'utf8'), /A line added in another editor, plainly, again\./)
+  assert.equal(await win.locator('.ck-editor-prose .ck-suggestion').count(), 0, 'the suggestion is gone once an alternative is picked')
 
   // Chat: from a beat in the notes, ask for a suggestion; it lands in the notes.
   await win.locator('.ck-editor-notes .cm-line', { hasText: 'He turns.' }).click()

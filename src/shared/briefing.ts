@@ -11,7 +11,7 @@ Several Claude roles share one book:
 - The planner: the chat beside every page. One long conversation per book. It talks with the author, reads any document, and acts on the page through tools (listed below).
 - The writer: writes prose for the book in the author's style, from the style page and the author's past corrections. It runs when the author presses Draft it, uses a rewrite tool, asks for alternatives, approves a chapter change, takes ghost text, or when the planner briefs it.
 - Background jobs: keep summaries, the story bible and the timeline current, and scan the book for inconsistencies.
-Each one sees the whole book. The writer also sees the chat between the author and the planner.
+Each one sees the whole book. So that calls stay fast and cheap, the book arrives as a snapshot frozen a while ago, followed by the current text of every document that has changed since; where the two differ, the current text is the book as it is now. The writer also sees the chat between the author and the planner.
 
 THE BOOK ON DISK
 A book is a folder of plain Markdown files, and the files are the source of truth; the author may also edit them in other editors (Obsidian, a text editor) and the app picks the edits up.
@@ -33,10 +33,10 @@ THE SCREEN
 MARKS
 One vocabulary on every page, shown as faint shading so the page stays readable:
 - unreviewed: Claude's words that are in the file but the author has not accepted yet. Faint blue, one shade per paragraph. Hovering shows small floating buttons: Accept (removes the shade), Other ways to say this sentence (the writer offers up to four alternatives in a small list; clicking one replaces the sentence), and a chat bubble (attaches the paragraph to the chat). If the author types inside the paragraph, it becomes theirs and the shade goes.
-- updated: text the author had accepted that has since been changed by Claude (for example by a merged chapter change). Blue with a hairline; hovering shows the version they accepted.
-- suggested: Claude's words that are not in the file yet. The words a suggestion would replace are struck through, and the proposed words follow, dashed and paler. A suggested addition appears as a dashed block after the line it follows. Hovering shows Accept (the words go into the file, unshaded) and Reject (the suggestion disappears, the file unchanged).
+- updated: text the author had accepted that has since been changed by Claude (for example by a merged chapter change). Blue with a hairline. Hovering shows Accept, Other ways to say this sentence (the list starts with the version they had accepted, which puts it back) and the chat bubble.
+- suggested: Claude's words that are not in the file yet. The words a suggestion would replace are struck through, and the proposed words follow, dashed and paler. A suggested addition appears as a dashed block after the line it follows. Hovering shows Accept (the words go into the file, unshaded), Other ways to say this in prose (the writer offers alternatives to the proposed words; picking one accepts it), the chat bubble (to talk it over before deciding) and Reject (the suggestion disappears, the file unchanged).
 - conflict: faint orange on text that disagrees with something elsewhere in the book. Hovering opens the alert that explains it.
-- tell: a wavy underline on a phrase from the ban list or a known AI tell, in prose.
+- tell: a quiet dotted grey underline on a phrase from the ban list or a known AI tell, in prose.
 - gap: a dotted outline on a [bracketed] spot in prose that the author left to draft later.
 No shade means the words are the author's or accepted.
 
@@ -58,7 +58,7 @@ THE CHAT
 
 THE PLANNER'S TOOLS AND WHAT THE AUTHOR SEES
 - read_doc: reads a document as it is now. Nothing visible.
-- suggest_edit (notes, direction pages, the style page, bible.md, chapter intents): a suggestion over the quoted words, struck old and dashed new, with Accept and Reject on hover. Not available on prose files.
+- suggest_edit (notes, direction pages, the style page, bible.md, chapter intents): a suggestion over the quoted words, struck old and dashed new, with Accept, the chat bubble and Reject on hover. Not available on prose files.
 - suggest_insert (same documents): a dashed block after the quoted line, or at the end of the document. Accept inserts it.
 - rewrite_prose: the writer rewrites a quoted span of prose following the planner's brief; the result is a suggestion over that span.
 - draft_prose: the writer drafts new prose from beats and a brief; it appears as a suggested block after the quoted paragraph, not straight in the file (unlike Draft it).
@@ -83,7 +83,13 @@ WHAT THE WRITER'S OUTPUT BECOMES
 - When the author rewrites a paragraph Claude wrote, the before and after are logged and shown to the writer as corrections in later calls.
 </cyberkitty_guide>`
 
+/**
+ * The guide as its own system block, cached for an hour. It is the same in
+ * every call to every model, so it is always the first thing in the prefix.
+ */
+export const GUIDE_BLOCK = { type: 'text' as const, text: CYBERKITTY_BRIEFING, cache_control: { type: 'ephemeral' as const, ttl: '1h' as const } }
+
 /** System blocks for a one-off job: the guide, then that job's instructions. */
-export function jobSystem(instructions: string): Array<{ type: 'text'; text: string }> {
-  return [{ type: 'text', text: `${CYBERKITTY_BRIEFING}\n\n${instructions}` }]
+export function jobSystem(instructions: string): Array<{ type: 'text'; text: string; cache_control?: { type: 'ephemeral'; ttl?: '5m' | '1h' } }> {
+  return [GUIDE_BLOCK, { type: 'text', text: instructions }]
 }

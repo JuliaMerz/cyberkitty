@@ -4,7 +4,8 @@
 
 import Anthropic from '@anthropic-ai/sdk'
 import type { BetaContentBlock, BetaMessageParam, BetaTextBlockParam, BetaToolUnion } from '@anthropic-ai/sdk/resources/beta/messages/messages'
-import { costUsd } from '@shared/pricing'
+import { costUsd, promptTokens } from '@shared/pricing'
+import type { SpendSummary } from '@shared/types'
 import type { LaneSetting } from '@shared/types'
 import { addSpend, getApiKey, getSpend } from './settings'
 import { fake } from './fake'
@@ -32,8 +33,8 @@ export class RefusedError extends Error {
 const FAKE = (): boolean => Boolean(process.env.CYBERKITTY_FAKE_WRITER)
 const BETAS = ['server-side-fallback-2026-07-01']
 
-let onSpend: ((todayUsd: number, capUsd: number) => void) | null = null
-export function setSpendListener(fn: (todayUsd: number, capUsd: number) => void): void {
+let onSpend: ((s: SpendSummary) => void) | null = null
+export function setSpendListener(fn: (s: SpendSummary) => void): void {
   onSpend = fn
 }
 
@@ -45,10 +46,7 @@ async function client(): Promise<Anthropic> {
 
 async function record(model: string, usage: Parameters<typeof costUsd>[1]): Promise<number> {
   const usd = costUsd(model, usage)
-  if (usd > 0) {
-    const s = await addSpend(usd)
-    onSpend?.(s.todayUsd, s.capUsd)
-  }
+  if (usd > 0) onSpend?.(await addSpend(usd, promptTokens(usage)))
   return usd
 }
 
@@ -158,6 +156,8 @@ export interface AgentTurnResult {
   stopReason: string | null
   model: string
   costUsd: number
+  /** The whole prompt's size in tokens, cached or not. */
+  promptTokens?: number
 }
 
 /** One request of the planner's agent loop. The caller runs tools and loops. */
@@ -174,15 +174,23 @@ export async function agentTurn(args: AgentTurnArgs): Promise<AgentTurnResult> {
       system: args.system,
       tools: args.tools,
       messages: args.messages,
-      // The growing conversation tail is cached automatically; the book
-      // snapshot carries its own longer-lived breakpoint in the system blocks.
-      cache_control: { type: 'ephemeral' }
+      // The growing conversation is cached automatically. One hour, like the
+      // system blocks before it (longer TTLs must come first): the author
+      // replies at a human pace, often more than five minutes apart.
+      cache_control: { type: 'ephemeral', ttl: '1h' }
     },
     { signal: args.signal }
   )
   stream.on('text', (delta) => args.onText?.(delta))
   const final = await stream.finalMessage()
-  return { content: final.content, stopReason: final.stop_reason, model: final.model, costUsd: await record(final.model, final.usage) }
+  const u = final.usage
+  return {
+    content: final.content,
+    stopReason: final.stop_reason,
+    model: final.model,
+    costUsd: await record(final.model, u),
+    promptTokens: (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0)
+  }
 }
 
 export function describeError(err: unknown): string {
@@ -193,6 +201,11 @@ export function describeError(err: unknown): string {
   if (err instanceof Anthropic.APIUserAbortError) return 'Stopped.'
   if (err instanceof Anthropic.APIError) return `Anthropic returned an error: ${err.message}`
   return err instanceof Error ? err.message : String(err)
+}
+
+/** The API rejected the request itself (as opposed to a passing failure). */
+export function isBadRequest(err: unknown): boolean {
+  return err instanceof Anthropic.BadRequestError
 }
 
 export function isAbort(err: unknown): boolean {

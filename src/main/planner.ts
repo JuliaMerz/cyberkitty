@@ -5,14 +5,14 @@
 // suggestion, never a direct write, and it never writes prose for the book
 // itself: it briefs the writer.
 
-import { createHash } from 'node:crypto'
 import type { BetaContentBlockParam, BetaMessageParam, BetaToolUnion } from '@anthropic-ai/sdk/resources/beta/messages/messages'
 import { z } from 'zod'
 import { CYBERKITTY_BRIEFING } from '@shared/briefing'
 import { linkFor } from '@shared/links'
 import type { BibleType, ChatEntry, DocRef, PageName, PassageRef, Place, SceneFile } from '@shared/types'
-import { agentTurn, describeError, isAbort, type SystemBlocks } from './gateway'
-import { bookSnapshot } from './context'
+import { agentTurn, describeError, isAbort, isBadRequest, type SystemBlocks } from './gateway'
+import { openAlertsText } from './context'
+import { bookContextFor, COLD_MS, diffUnits, unitsNow } from './snapshot'
 import { loadSettings } from './settings'
 import { newId, requireBook, send } from './state'
 import { chatStore } from './stores'
@@ -28,7 +28,7 @@ const PAGES: PageName[] = ['book.md', 'summary.md', 'theme.md', 'tropes.md', 'ch
 export const PLANNER_INSTRUCTIONS = `You are the planner, in the chat.
 
 What you have:
-- Below is a snapshot of the whole book: the style page, direction pages, the bible, the outline, chapter intents, scene summaries, notes and prose with their ids, and open alerts. The author keeps working while you talk, so the snapshot ages. Each message lists the documents that changed since you last heard; read_doc gives you their current text.
+- Below is a snapshot of the whole book: the style page, direction pages, the bible, the outline, chapter intents, scene summaries, notes and prose with their ids. It is frozen when your session starts (so it can stay cached); after it come the documents that had already changed since it was taken, with their current text, then open alerts and the last part of your earlier conversation. The author keeps working while you talk: each message carries what changed since the previous one, as current text, or as a list of names when there is too much (read_doc gives you any document's current text). The newest version of a document is the one that counts.
 - Each message carries the author's place (page, paragraph under the cursor, selection) and any passages they attached.
 - Your tools act on the page as described in the guide above. Quote text exactly as it appears when a tool needs a quote; tool results hand back ck: links to what you made, which you can put in your reply.
 
@@ -252,30 +252,25 @@ async function label(ref: DocRef): Promise<string> {
 interface Session {
   system: SystemBlocks
   messages: BetaMessageParam[]
-  /** Hashes of each document's text as last seen by the planner. */
-  seen: Map<string, string>
+  /** The book as last reported to the planner, for per-message diffs. */
+  seen: { units: Awaited<ReturnType<typeof bookContextFor>>['units']; contents: string }
+  /** When the session last called Claude; past COLD_MS its cache has expired anyway. */
+  lastAt: number
+  /** Prompt size of the first request, and of the latest one. */
+  baseTokens: number
+  lastTokens: number
+  /** What the author saw of a reply they stopped, to tell the planner next time. */
+  stopped?: string
 }
 
 let session: Session | null = null
 let running: AbortController | null = null
 let queue: Promise<void> = Promise.resolve()
 
-function hash(s: string): string {
-  return createHash('sha1').update(s).digest('hex')
-}
-
-async function docTexts(): Promise<Map<string, string>> {
-  const b = requireBook()
-  const out = new Map<string, string>()
-  for (const s of await b.scenes()) {
-    out.set(`scene ${s.id} notes`, hash(s.notes ?? ''))
-    out.set(`scene ${s.id} prose`, hash(s.prose ?? ''))
-  }
-  for (const p of PAGES) out.set(`page ${p}`, hash(await b.readPage(p)))
-  const tree = await b.tree()
-  for (const c of tree.chapters) out.set(`chapter ${c.id}`, hash((await b.readText(`${c.id}/chapter.md`)) ?? ''))
-  return out
-}
+/** Conversation past this many tokens beyond the book starts a new session (the frozen book is reused while warm). */
+const MAX_CONVERSATION_TOKENS = 100_000
+/** Changes since the last message are sent as text up to this size, and as names past it. */
+const INLINE_CHANGES_CHARS = 40_000
 
 export function resetPlanner(): void {
   running?.abort()
@@ -288,11 +283,39 @@ async function startSession(): Promise<Session> {
   const transcript = recent.length
     ? `<earlier_conversation>\nThe last part of your conversation with the author before this session began:\n${recent.map((e) => `${e.role === 'author' ? 'Author' : 'Claude'}${e.place ? ` (on ${e.place.label})` : ''}: ${e.text}`).join('\n')}\n</earlier_conversation>`
     : ''
+  const book = await bookContextFor('planner', { style: true, notes: true })
+  // Four breakpoints, from never-changing to per-session: instructions, the
+  // frozen book, what changed since it plus the earlier conversation, and the
+  // growing conversation (automatic). All one hour: the author replies at a
+  // human pace. The guide carries no breakpoint of its own here but matches
+  // the one other calls write, so it can still be read from cache.
   const system: SystemBlocks = [
-    { type: 'text', text: `${CYBERKITTY_BRIEFING}\n\n${PLANNER_INSTRUCTIONS}\n\n${HELP_LEVEL[settings.blockingHelp] ?? HELP_LEVEL.some}`, cache_control: { type: 'ephemeral', ttl: '1h' } },
-    { type: 'text', text: (await bookSnapshot()) + (transcript ? `\n\n${transcript}` : ''), cache_control: { type: 'ephemeral', ttl: '1h' } }
+    { type: 'text', text: CYBERKITTY_BRIEFING },
+    { type: 'text', text: `${PLANNER_INSTRUCTIONS}\n\n${HELP_LEVEL[settings.blockingHelp] ?? HELP_LEVEL.some}`, cache_control: { type: 'ephemeral', ttl: '1h' } },
+    { type: 'text', text: book.snapshot, cache_control: { type: 'ephemeral', ttl: '1h' } },
+    { type: 'text', text: [book.changes, await openAlertsText(), transcript].filter(Boolean).join('\n\n'), cache_control: { type: 'ephemeral', ttl: '1h' } }
   ]
-  return { system, messages: [], seen: await docTexts() }
+  return { system, messages: [], seen: { units: book.units, contents: book.contents }, lastAt: Date.now(), baseTokens: 0, lastTokens: 0 }
+}
+
+function needsNewSession(s: Session | null, now: number): boolean {
+  if (!s) return true
+  // A cold cache costs the same either way, so start fresh with a current book.
+  if (now - s.lastAt > COLD_MS) return true
+  if (s.baseTokens && s.lastTokens - s.baseTokens > MAX_CONVERSATION_TOKENS) return true
+  return s.messages.length > 400
+}
+
+/**
+ * Leave the conversation valid after a stop or an error: every tool call
+ * needs a result before the next message, so calls that never ran get one.
+ */
+function repair(s: Session): void {
+  const last = s.messages.at(-1)
+  if (last?.role !== 'assistant' || !Array.isArray(last.content)) return
+  const ids = last.content.flatMap((b) => (b.type === 'tool_use' ? [b.id] : []))
+  if (!ids.length) return
+  s.messages.push({ role: 'user', content: ids.map((id) => ({ type: 'tool_result' as const, tool_use_id: id, content: 'This did not run: the author stopped the reply.', is_error: true })) })
 }
 
 function placeXml(place: Place): string {
@@ -307,12 +330,17 @@ function placeXml(place: Place): string {
   return `<place ${attrs.join(' ')}>${inner ? `\n${inner}\n` : ''}</place>`
 }
 
-async function changedSince(s: Session): Promise<string[]> {
-  const now = await docTexts()
-  const changed: string[] = []
-  for (const [k, h] of now) if (s.seen.get(k) !== h) changed.push(k)
+/** What changed since the planner last heard, as current text when it fits. */
+async function changedSince(s: Session): Promise<string> {
+  const now = await unitsNow('planner')
+  if (!now) return ''
+  const diff = diffUnits(s.seen.units, now.units, s.seen.contents, now.contents)
   s.seen = now
-  return changed
+  if (!diff.text) return ''
+  if (diff.text.length <= INLINE_CHANGES_CHARS) {
+    return `<changed_since_you_last_heard>\nThe current text of each document that changed since the author's last message:\n${diff.text}\n</changed_since_you_last_heard>`
+  }
+  return `<changed_since_you_last_heard>\nToo much changed to include here; read_doc gives you the current text of:\n${diff.labels.join('\n')}\n</changed_since_you_last_heard>`
 }
 
 async function pushEntries(update: (entries: ChatEntry[]) => ChatEntry[]): Promise<ChatEntry[]> {
@@ -345,9 +373,11 @@ async function turn(text: string, place: Place, passages: PassageRef[]): Promise
   let lastFlush = 0
 
   try {
-    if (!session || session.messages.length > 120) session = await startSession()
-    const s = session
+    if (needsNewSession(session, Date.now())) session = await startSession()
+    const s = session!
     const changed = await changedSince(s)
+    const stopped = s.stopped
+    s.stopped = undefined
     const passageXml = passages.length
       ? `<attached_passages>\n${passages.map((p) => `<passage doc="${p.ref.kind === 'scene' ? `${p.ref.sceneId} ${p.ref.file}` : p.ref.kind === 'page' ? p.ref.name : p.ref.chapterId}">${p.quote}</passage>`).join('\n')}\n</attached_passages>`
       : ''
@@ -357,7 +387,8 @@ async function turn(text: string, place: Place, passages: PassageRef[]): Promise
         text: [
           `<event type="${passages.length ? 'comment' : 'chat'}" at="${authorEntry.at}">`,
           placeXml(place),
-          changed.length ? `<changed_since_you_last_heard>\n${changed.join('\n')}\n</changed_since_you_last_heard>` : '',
+          stopped !== undefined ? `<your_last_reply_was_stopped>\nThe author stopped your previous reply. What they saw of it:\n${stopped || '(nothing yet)'}\n</your_last_reply_was_stopped>` : '',
+          changed,
           passageXml,
           `<message>\n${text}\n</message>`,
           '</event>'
@@ -370,6 +401,8 @@ async function turn(text: string, place: Place, passages: PassageRef[]): Promise
     const lane = (await loadSettings()).lanes.planner
 
     for (let i = 0; i < 12; i++) {
+      // The cache's lifetime runs from the start of each request.
+      s.lastAt = Date.now()
       const res = await agentTurn({
         lane,
         system: s.system,
@@ -385,6 +418,10 @@ async function turn(text: string, place: Place, passages: PassageRef[]): Promise
         }
       })
       s.messages.push({ role: 'assistant', content: res.content as BetaContentBlockParam[] })
+      if (res.promptTokens) {
+        if (!s.baseTokens) s.baseTokens = res.promptTokens
+        s.lastTokens = res.promptTokens
+      }
       if (res.stopReason === 'refusal') {
         reply += reply ? '\n\n' : ''
         reply += 'I can’t help with that one. You can rephrase it, or pick another planner model in Settings.'
@@ -410,14 +447,21 @@ async function turn(text: string, place: Place, passages: PassageRef[]): Promise
     }
     await flush(false)
   } catch (err) {
+    // Keep the session (and its cache) through a stop or a passing error: the
+    // conversation is repaired so it stays valid, and the planner hears what
+    // happened. Only a request the API rejected starts over.
+    const s = session
     if (isAbort(err)) {
+      if (s) {
+        repair(s)
+        s.stopped = reply
+      }
       reply += reply ? ' …' : '(stopped)'
-      // An aborted turn leaves the session mid-thought; start fresh next time.
-      session = null
       await flush(false)
     } else {
+      if (s && !isBadRequest(err)) repair(s)
+      else session = null
       reply = reply ? `${reply}\n\n${describeError(err)}` : describeError(err)
-      session = null
       await flush(false, true)
     }
   } finally {

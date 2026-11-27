@@ -152,6 +152,8 @@ export interface Settings {
 export interface SpendSummary {
   todayUsd: number
   capUsd: number
+  /** Today's prompt tokens by how they were billed, to see that caching works. */
+  tokens?: { uncached: number; cacheRead: number; cacheWrite: number }
 }
 
 // ---- Drafting -------------------------------------------------------------
