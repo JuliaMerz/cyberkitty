@@ -9,6 +9,7 @@ import { createHash } from 'node:crypto'
 import { linkFor } from '@shared/links'
 import { DIRECTION_PAGES, type DocRef, type PageName, type SceneSummary } from '@shared/types'
 import { describeError, structured } from './gateway'
+import { logChanges } from './eventlog'
 import { bibleText, directionText } from './context'
 import { mergeSceneEntries, type ExtractedEntry } from './bible'
 import { fileAlert, refreshAlerts } from './alerts'
@@ -61,6 +62,8 @@ export async function settle(): Promise<void> {
   if (running) return
   running = true
   try {
+    // The pause is a natural edge for a batch of typing: log it as one event.
+    await logChanges()
     await settleScenes()
     await checkDirectionChanges()
     await refreshAlerts()

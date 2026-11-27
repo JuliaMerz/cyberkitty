@@ -11,6 +11,13 @@ import { addSpend, getApiKey, getSpend } from './settings'
 import { fake } from './fake'
 
 export type SystemBlocks = BetaTextBlockParam[]
+/** A request's user turn: plain text, or blocks (history batches, then the task). */
+export type UserContent = string | BetaTextBlockParam[]
+
+/** The user turn as plain text, for the stand-in model. */
+export function userText(u: UserContent): string {
+  return typeof u === 'string' ? u : u.map((b) => b.text).join('\n\n')
+}
 
 export class NoKeyError extends Error {
   constructor() {
@@ -63,7 +70,7 @@ export async function checkCap(): Promise<void> {
 export interface StreamTextArgs {
   lane: LaneSetting
   system: SystemBlocks
-  user: string
+  user: UserContent
   maxTokens: number
   signal?: AbortSignal
   onText?: (delta: string) => void
@@ -80,7 +87,7 @@ export interface StreamTextResult {
 /** One streamed text reply. */
 export async function streamText(args: StreamTextArgs): Promise<StreamTextResult> {
   if (args.background) await checkCap()
-  if (FAKE()) return fake.text(args)
+  if (FAKE()) return fake.text({ ...args, user: userText(args.user) })
   const c = await client()
   // Dark fiction can trip a safety classifier. Server-side fallback reruns a
   // declined request on a model that will take it, inside the same call.
@@ -109,7 +116,7 @@ export async function streamText(args: StreamTextArgs): Promise<StreamTextResult
 export async function structured<T>(args: {
   lane: LaneSetting
   system: SystemBlocks
-  user: string
+  user: UserContent
   schema: Record<string, unknown>
   maxTokens?: number
   signal?: AbortSignal
@@ -117,7 +124,7 @@ export async function structured<T>(args: {
   fakeKey: string
 }): Promise<T> {
   if (args.background) await checkCap()
-  if (FAKE()) return fake.structured(args.fakeKey, args.user) as T
+  if (FAKE()) return fake.structured(args.fakeKey, userText(args.user)) as T
   const c = await client()
   const stream = c.beta.messages.stream(
     {

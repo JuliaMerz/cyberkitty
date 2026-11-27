@@ -6,7 +6,7 @@
 
 import { jobSystem } from '@shared/briefing'
 import { makeAnchor } from '@shared/anchors'
-import { writerSystem } from '@shared/prompts'
+import { correctionsXml, withHistory, writerSystem } from '@shared/prompts'
 import { cleanDraft } from '@shared/notes'
 import type { ChangeSpec, HunkDecision, MarkRecord } from '@shared/types'
 import { currentBookText, writerBookContext } from './snapshot'
@@ -114,8 +114,9 @@ export async function runChange(id: string): Promise<void> {
       const before = await chapterSoFar(sc.sceneId)
       const res = await streamText({
         lane,
-        system: writerSystem(style, corrections, bookContext),
-        user: [
+        system: writerSystem(style, bookContext.snapshot),
+        user: withHistory(bookContext.history, [
+          correctionsXml(corrections),
           before.length ? `<chapter_so_far>\n${before.map((s) => `<scene title="${s.title}">\n${s.prose}\n</scene>`).join('\n')}\n</chapter_so_far>` : '',
           `<change_spec>\n${change.spec}\n</change_spec>`,
           scene?.notes ? `<scene_notes>\n${stripHeading(scene.notes)}\n</scene_notes>` : '',
@@ -123,7 +124,7 @@ export async function runChange(id: string): Promise<void> {
           '<task>\nRewrite this scene as the change spec says, and change nothing the spec does not ask for: keep every paragraph that does not need to change exactly as it is, word for word. Reply with the whole scene prose only, with no heading and no commentary.\n</task>'
         ]
           .filter(Boolean)
-          .join('\n\n'),
+          .join('\n\n')),
         maxTokens: 32000
       })
       if (res.refused) throw new RefusedError()

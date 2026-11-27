@@ -21,16 +21,18 @@ describe('writer prompt', () => {
 
   it('drafts the whole scene when there is no prose yet', () => {
     const p = buildWriterPrompt(base)
-    expect(p.user).toContain('Draft the scene from its notes.')
-    expect(p.user).not.toContain('<scene_prose>')
-    expect(p.user).toContain('- You look like your mother.')
+    const u = p.user.at(-1)?.text ?? ''
+    expect(u).toContain('Draft the scene from its notes.')
+    expect(u).not.toContain('<scene_prose>')
+    expect(u).toContain('- You look like your mother.')
   })
 
   it('marks the insertion point when continuing prose', () => {
     const p = buildWriterPrompt({ ...base, proseBefore: '# Arrival\n\nThe ferry was late.\n\n', proseAfter: 'At the shed.', beats: '- He turns.' })
-    expect(p.user).toMatch(/The ferry was late\.\n<<< WRITE HERE >>>\nAt the shed\./)
-    expect(p.user).toContain('Draft only these beats')
-    expect(p.user).not.toContain('# Arrival\n')
+    const u = p.user.at(-1)?.text ?? ''
+    expect(u).toMatch(/The ferry was late\.\n<<< WRITE HERE >>>\nAt the shed\./)
+    expect(u).toContain('Draft only these beats')
+    expect(u).not.toContain('# Arrival\n')
   })
 
   it('says so when the style page is empty', () => {
@@ -49,12 +51,15 @@ describe('shared briefing', () => {
 })
 
 describe('writer context', () => {
-  it('puts the frozen book after the style page and what changed after that', async () => {
-    const { writerSystem } = await import('@shared/prompts')
-    const sys = writerSystem('style', [], { snapshot: '<book_snapshot/>', tail: '<chat/>' })
-    expect(sys).toHaveLength(5)
+  it('puts the frozen book after the style page, and the history in the request before the task', async () => {
+    const { writerSystem, buildWriterPrompt } = await import('@shared/prompts')
+    const sys = writerSystem('style', '<book_snapshot/>')
+    expect(sys).toHaveLength(4)
     expect(sys[2].text).toContain('style')
     expect(sys[3]).toEqual({ type: 'text', text: '<book_snapshot/>', cache_control: { type: 'ephemeral', ttl: '1h' } })
-    expect(sys[4]).toEqual({ type: 'text', text: '<chat/>', cache_control: { type: 'ephemeral' } })
+    const p = buildWriterPrompt({ ...base, corrections: [{ before: 'She felt sad.', after: 'She sat.' }], bookContext: { snapshot: '<book_snapshot/>', history: ['<events>x</events>'] } })
+    expect(p.user[0]).toEqual({ type: 'text', text: '<events>x</events>', cache_control: { type: 'ephemeral', ttl: '1h' } })
+    expect(p.user[1].text).toContain('<corrections>')
+    expect(p.user[1].text).toContain('Draft the scene from its notes.')
   })
 })

@@ -1,6 +1,7 @@
 // Prompts for the writer lane. The writer produces every sentence meant for
-// the book. Its system blocks run from static to volatile for caching (see
-// writerSystem); the request itself carries the passage and the task.
+// the book. Its system blocks run from static to rarely-changing (see
+// writerSystem); the request carries the history since the book snapshot,
+// then the task with the current text it acts on (see withHistory).
 
 import { GUIDE_BLOCK } from './briefing'
 
@@ -16,7 +17,7 @@ Reply with the prose only: Markdown paragraphs separated by blank lines, with no
 
 export interface WriterContext {
   bookTitle: string
-  /** The whole book and the chat, for continuity. */
+  /** The frozen book and the history since, for continuity. */
   bookContext?: WriterBook
   styleMd: string | null
   /** Earlier scenes in this chapter, oldest first. */
@@ -36,47 +37,61 @@ export type SystemBlock = { type: 'text'; text: string; cache_control?: CacheCon
 
 export interface WriterPrompt {
   system: SystemBlock[]
-  user: string
+  /** The history since the snapshot, then the task with the current text it acts on. */
+  user: SystemBlock[]
 }
 
-/** The frozen book and what changed since, from snapshot.ts. */
+/** The frozen book and the event log since it, from snapshot.ts. */
 export interface WriterBook {
   snapshot: string
-  tail: string
+  history: string[]
 }
 
 /**
- * The writer's system blocks, ordered from never-changing to always-changing
- * so each cache breakpoint covers as much as possible:
- * guide (1h) · instructions · style page (1h) · frozen book (1h) · tail (5m).
- * The tail holds what changed since the snapshot, open alerts, the chat and
- * the author's recent corrections; it is cached briefly so back-to-back calls
- * (alternatives, a run of rewrites) reuse it.
+ * The writer's system blocks, ordered from never-changing to rarely-changing:
+ * guide (1h) · instructions · style page (1h) · frozen book (1h).
  */
-export function writerSystem(styleMd: string | null, corrections: Array<{ before: string; after: string }> = [], book?: WriterBook): SystemBlock[] {
+export function writerSystem(styleMd: string | null, snapshot?: string): SystemBlock[] {
   const style = styleMd?.trim()
     ? styleMd.trim()
     : '(The author has not filled in the style page yet. Write plain, unshowy prose and keep it close to the notes.)'
-  const correctionsXml = corrections.length
-    ? '<corrections>\nRecent sentences Claude wrote and how the author rewrote them. Learn from the direction of each change.\n' +
-      corrections.map((c) => `<pair>\n<claude>${c.before.trim()}</claude>\n<author>${c.after.trim()}</author>\n</pair>`).join('\n') +
-      '\n</corrections>'
-    : ''
   const blocks: SystemBlock[] = [
     GUIDE_BLOCK,
     { type: 'text', text: WRITER_INSTRUCTIONS },
     { type: 'text', text: `<style_page>\n${style}\n</style_page>`, cache_control: { type: 'ephemeral', ttl: '1h' } }
   ]
-  if (book) blocks.push({ type: 'text', text: book.snapshot, cache_control: { type: 'ephemeral', ttl: '1h' } })
-  const tail = [book?.tail ?? '', correctionsXml].filter(Boolean).join('\n\n')
-  if (tail) blocks.push({ type: 'text', text: tail, ...(book ? { cache_control: { type: 'ephemeral' as const } } : {}) })
+  if (snapshot) blocks.push({ type: 'text', text: snapshot, cache_control: { type: 'ephemeral', ttl: '1h' } })
+  return blocks
+}
+
+export function correctionsXml(corrections: Array<{ before: string; after: string }> = []): string {
+  return corrections.length
+    ? '<corrections>\nRecent sentences Claude wrote and how the author rewrote them. Learn from the direction of each change.\n' +
+        corrections.map((c) => `<pair>\n<claude>${c.before.trim()}</claude>\n<author>${c.after.trim()}</author>\n</pair>`).join('\n') +
+        '\n</corrections>'
+    : ''
+}
+
+/**
+ * The request: the event log since the snapshot, one block per batch, with
+ * the cache point on the newest (the log only grows, so the next call reads
+ * all of it from cache), then the task, which is never cached because it
+ * carries the current text of what it acts on.
+ */
+export function withHistory(history: string[], task: string): SystemBlock[] {
+  const blocks: SystemBlock[] = history.map((text) => ({ type: 'text', text }))
+  const last = blocks.at(-1)
+  if (last) last.cache_control = { type: 'ephemeral', ttl: '1h' }
+  blocks.push({ type: 'text', text: task })
   return blocks
 }
 
 export function buildWriterPrompt(ctx: WriterContext): WriterPrompt {
-  const system = writerSystem(ctx.styleMd, ctx.corrections, ctx.bookContext)
+  const system = writerSystem(ctx.styleMd, ctx.bookContext?.snapshot)
 
   const parts: string[] = []
+  const corrections = correctionsXml(ctx.corrections)
+  if (corrections) parts.push(corrections)
   parts.push(`<book title="${escapeAttr(ctx.bookTitle)}" />`)
   if (ctx.chapterSoFar.length) {
     parts.push(
@@ -121,7 +136,7 @@ export function buildWriterPrompt(ctx: WriterContext): WriterPrompt {
   }
   parts.push(`<task>\n${task.join('\n\n')}\n</task>`)
 
-  return { system, user: parts.join('\n\n') }
+  return { system, user: withHistory(ctx.bookContext?.history ?? [], parts.join('\n\n')) }
 }
 
 function stripTitle(prose: string): string {

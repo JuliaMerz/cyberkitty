@@ -8,8 +8,11 @@ import {
   buildGhostPrompt,
   buildRewritePrompt,
   buildWriterPrompt,
+  correctionsXml,
   HUMANIZE,
-  writerSystem
+  withHistory,
+  writerSystem,
+  type SystemBlock
 } from '@shared/prompts'
 import { cleanDraft, missingPinned, pinnedLines } from '@shared/notes'
 import type { AlternativesRequest, DraftRequest, DraftResult, LaneSetting, RewriteRequest } from '@shared/types'
@@ -19,6 +22,13 @@ import { requireBook } from './state'
 import { recentCorrections } from './stores'
 import { stripHeading } from './project'
 import { writerBookContext } from './snapshot'
+
+/** System and user blocks for a writer call that sees the book: snapshot, history, then the task. */
+async function bookRequest(style: string | null, corrections: Array<{ before: string; after: string }>, task: string): Promise<{ system: SystemBlock[]; user: SystemBlock[] }> {
+  const book = await writerBookContext()
+  const c = correctionsXml(corrections)
+  return { system: writerSystem(style, book.snapshot), user: withHistory(book.history, c ? `${c}\n\n${task}` : task) }
+}
 
 async function styleAndCorrections(): Promise<{ style: string | null; corrections: Array<{ before: string; after: string }> }> {
   const b = requireBook()
@@ -97,8 +107,7 @@ export async function alternatives(req: AlternativesRequest): Promise<string[]> 
   const lane = (await loadSettings()).lanes.writerQuick
   const res = await structured<{ alternatives: string[] }>({
     lane,
-    system: writerSystem(style, corrections, await writerBookContext()),
-    user: buildAlternativesPrompt(req),
+    ...(await bookRequest(style, corrections, buildAlternativesPrompt(req))),
     schema: ALTERNATIVES_SCHEMA,
     maxTokens: 4000,
     fakeKey: 'alternatives'
@@ -112,8 +121,7 @@ export async function rewrite(req: RewriteRequest & { brief?: string }, laneName
   const instruction = req.tool ? HUMANIZE[req.tool] : req.instruction ?? 'Improve it, staying in the author’s voice.'
   const res = await streamText({
     lane,
-    system: writerSystem(style, corrections, await writerBookContext()),
-    user: buildRewritePrompt({ context: req.context, span: req.quote, instruction, brief: req.brief }),
+    ...(await bookRequest(style, corrections, buildRewritePrompt({ context: req.context, span: req.quote, instruction, brief: req.brief }))),
     maxTokens: 8000
   })
   if (res.refused) throw new RefusedError()

@@ -2,11 +2,13 @@
 //
 // Caching is a prefix match: a single changed byte invalidates everything
 // after it. The book changes all the time, so each Claude role keeps a frozen
-// copy of the whole book in its cached prefix (1-hour TTL) and receives what
-// changed since then, as the current text of each changed document, after it.
-// The snapshot is retaken when those changes pile up, or when its cache has
-// gone cold anyway (no call for most of an hour), so a fresh copy costs
-// nothing extra.
+// copy of the whole book in its cached prefix (1-hour TTL). After it comes
+// what happened since: for the writer and the planner, the event log
+// (messages, actions, paragraph edits; see eventlog.ts), which only ever
+// grows; for the scan, the current text of each changed document. The
+// snapshot is retaken when that pile gets large, or when its cache has gone
+// cold anyway (no call for most of an hour), so a fresh copy costs nothing
+// extra.
 //
 // The book is split into units (a page, a chapter intent, a scene, a bible
 // entry). A unit's rendered text is what the snapshot shows and what the diff
@@ -14,6 +16,7 @@
 
 import { DIRECTION_PAGES, type PageName } from '@shared/types'
 import { bibleLine, chatText, openAlertsText } from './context'
+import { closeBatch, eventsSince, lastSeq, renderBatches } from './eventlog'
 import { stripHeading } from './project'
 import { requireBook, state } from './state'
 import { bibleStore, summaryStore } from './stores'
@@ -25,6 +28,12 @@ export interface SnapshotMode {
   notes: boolean
   /** Set when the book is too long: prose outside this chapter is left out. */
   proseOnlyIn?: string
+  /**
+   * What follows the snapshot is the event log (writer, planner) rather than
+   * changed documents (scan). The snapshot then also holds the open alerts and
+   * the conversation so far, which the log carries on from.
+   */
+  history?: boolean
 }
 
 interface Unit {
@@ -43,6 +52,8 @@ interface Rendered {
   chapters: Array<{ id: string; number: number; title: string; intent: Unit; scenes: Unit[] }>
   /** Chapter and scene ids and titles in order, to notice structural changes. */
   contents: string
+  /** Open alerts and the conversation so far, in history mode. */
+  extras?: string
 }
 
 interface Frozen {
@@ -52,6 +63,8 @@ interface Frozen {
   contents: string
   takenAt: number
   lastUsed: number
+  /** The last event already reflected in the snapshot. */
+  logSeq: number
 }
 
 /** About 150k tokens. A full-length novel fits; past that the snapshot drops notes, then far-away prose. */
@@ -105,7 +118,9 @@ async function render(mode: SnapshotMode): Promise<Rendered> {
       scenes: units
     })
   }
+  const extras = mode.history ? `${await openAlertsText()}\n<conversation_so_far>\n${await chatText()}\n</conversation_so_far>` : undefined
   return {
+    extras,
     title: tree.title,
     style: mode.style ? { key: 'page:style.md', label: 'style.md', text: `<style_page>\n${style || '(empty)'}\n</style_page>` } : undefined,
     pages,
@@ -130,7 +145,9 @@ function assemble(r: Rendered): string {
   for (const c of r.chapters) {
     out.push(`<chapter id="${esc(c.id)}" number="${c.number}" title="${esc(c.title)}">`, c.intent.text, ...c.scenes.map((s) => s.text), '</chapter>')
   }
-  out.push('</manuscript>', '</book_snapshot>')
+  out.push('</manuscript>')
+  if (r.extras) out.push(r.extras)
+  out.push('</book_snapshot>')
   return out.join('\n')
 }
 
@@ -198,38 +215,43 @@ export function changesTooLarge(changesChars: number, snapshotChars: number): bo
 export interface BookContext {
   /** The frozen snapshot: byte-identical from call to call until it is retaken. */
   snapshot: string
-  /** What changed since the snapshot, as current text. Never cache it for long. */
+  /** Scan: what changed since the snapshot, as current text. */
   changes: string
-  /** The book as the snapshot's mode renders it now, for later diffs. */
-  units: Map<string, Unit>
-  contents: string
+  /** Writer and planner: the event log since the snapshot, one text per batch. */
+  history: string[]
+  /** The last event the snapshot reflects. */
+  logSeq: number
 }
 
 const CHANGES_HEAD =
   'These documents changed after the snapshot above was taken. The text here is current and replaces what the snapshot shows for the same document; anything not listed is unchanged.'
+const NO_CHANGES = '<changed_since_snapshot>(nothing has changed since the snapshot)</changed_since_snapshot>'
 
-/** The frozen snapshot for one role, retaken when needed, plus what changed since. */
+/** The frozen snapshot for one role, retaken when needed, plus what happened since. */
 export async function bookContextFor(role: string, mode: SnapshotMode, now = Date.now()): Promise<BookContext> {
+  // Bring the log up to date first, so a snapshot taken now and the log after it meet exactly.
+  if (mode.history) await closeBatch()
   let f = frozen.get(role)
-  let rendered: Rendered | null = null
   if (f && now - f.lastUsed <= COLD_MS) {
-    rendered = await render(f.mode)
-    const units = unitsOf(rendered)
-    const diff = diffUnits(f.units, units, f.contents, rendered.contents)
-    if (!changesTooLarge(diff.text.length, f.text.length)) {
-      f.lastUsed = now
-      return {
-        snapshot: f.text,
-        changes: diff.text ? `<changed_since_snapshot>\n${CHANGES_HEAD}\n${diff.text}\n</changed_since_snapshot>` : '<changed_since_snapshot>(nothing has changed since the snapshot)</changed_since_snapshot>',
-        units,
-        contents: rendered.contents
+    if (mode.history) {
+      const history = renderBatches(eventsSince(f.logSeq))
+      if (!changesTooLarge(history.reduce((n, t) => n + t.length, 0), f.text.length)) {
+        f.lastUsed = now
+        return { snapshot: f.text, changes: '', history, logSeq: f.logSeq }
+      }
+    } else {
+      const rendered = await render(f.mode)
+      const diff = diffUnits(f.units, unitsOf(rendered), f.contents, rendered.contents)
+      if (!changesTooLarge(diff.text.length, f.text.length)) {
+        f.lastUsed = now
+        return { snapshot: f.text, changes: diff.text ? `<changed_since_snapshot>\n${CHANGES_HEAD}\n${diff.text}\n</changed_since_snapshot>` : NO_CHANGES, history: [], logSeq: f.logSeq }
       }
     }
   }
   const fit = await fitted(mode)
-  f = { text: fit.text, mode: fit.mode, units: unitsOf(fit.rendered), contents: fit.rendered.contents, takenAt: now, lastUsed: now }
+  f = { text: fit.text, mode: fit.mode, units: unitsOf(fit.rendered), contents: fit.rendered.contents, takenAt: now, lastUsed: now, logSeq: lastSeq() }
   frozen.set(role, f)
-  return { snapshot: f.text, changes: '<changed_since_snapshot>(nothing has changed since the snapshot)</changed_since_snapshot>', units: f.units, contents: f.contents }
+  return { snapshot: f.text, changes: mode.history ? '' : NO_CHANGES, history: [], logSeq: f.logSeq }
 }
 
 /** The book as it is now, for one-off calls that keep no snapshot. */
@@ -237,16 +259,8 @@ export async function currentBookText(mode: SnapshotMode = { style: true, notes:
   return (await fitted(mode)).text
 }
 
-/** The units of the book now, in the mode of a role's snapshot (for the planner's per-message diffs). */
-export async function unitsNow(role: string): Promise<{ units: Map<string, Unit>; contents: string } | null> {
-  const f = frozen.get(role)
-  if (!f) return null
-  const r = await render(f.mode)
-  return { units: unitsOf(r), contents: r.contents }
-}
-
-/** What the writer sees besides its style page: the frozen book, then what changed, open alerts and the chat. */
-export async function writerBookContext(): Promise<{ snapshot: string; tail: string }> {
-  const ctx = await bookContextFor('writer', { style: false, notes: true })
-  return { snapshot: ctx.snapshot, tail: [ctx.changes, await openAlertsText(), await chatText()].join('\n\n') }
+/** What the writer sees besides its style page: the frozen book, then the event log since. */
+export async function writerBookContext(): Promise<{ snapshot: string; history: string[] }> {
+  const ctx = await bookContextFor('writer', { style: false, notes: true, history: true })
+  return { snapshot: ctx.snapshot, history: ctx.history }
 }

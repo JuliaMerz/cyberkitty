@@ -72,9 +72,12 @@ export async function openAlertsText(): Promise<string> {
   return `<open_alerts>\n${alerts.map((a) => `- id=${a.id} ${a.kind}: ${a.title}. ${a.explanation}`).join('\n')}\n</open_alerts>`
 }
 
+/** Chat entries being handled right now: they reach Claude as the event in hand, not as history. */
+export const pendingChat = new Set<string>()
+
 /** The conversation between the author and the planner, newest last, within a budget. */
 export async function chatText(budget = 120_000): Promise<string> {
-  const entries = await chatStore.read()
+  const entries = (await chatStore.read()).filter((e) => !e.streaming && !pendingChat.has(e.id))
   const lines: string[] = []
   let used = 0
   for (let i = entries.length - 1; i >= 0; i--) {

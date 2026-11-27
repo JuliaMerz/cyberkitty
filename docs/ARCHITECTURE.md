@@ -17,7 +17,7 @@ Markdown is the source of truth. Chapters are folders under `manuscript/`, numbe
 
 Direction pages (`summary.md`, `theme.md`, `tropes.md`, `characters.md`, `outline.md`), `style.md` and `bible.md` sit at the top of the book folder. A chapter's intent is its `chapter.md` below the title.
 
-Everything else is under `.cyberkitty/`: scene sidecars at `.cyberkitty/scenes/<chapter>/<scene>.json`, sidecars for pages and chapters at `.cyberkitty/docs/`, app data as JSON (`chat.json`, `bible.json`, `summaries.json`, `alerts.json`, `changes.json`, `diagrams.json`, `scan.json`, `direction-seen.json`), the corrections log `corrections.jsonl`, and history at `.cyberkitty/history.git`. Bible entries and summaries are derived and rebuild from the Markdown; losing any of it loses review state or chat, never words.
+Everything else is under `.cyberkitty/`: scene sidecars at `.cyberkitty/scenes/<chapter>/<scene>.json`, sidecars for pages and chapters at `.cyberkitty/docs/`, the event log `log.jsonl`, app data as JSON (`chat.json`, `bible.json`, `summaries.json`, `alerts.json`, `changes.json`, `diagrams.json`, `scan.json`, `direction-seen.json`), the corrections log `corrections.jsonl`, and history at `.cyberkitty/history.git`. Bible entries and summaries are derived and rebuild from the Markdown; losing any of it loses review state or chat, never words.
 
 Every editable document is addressed by a `DocRef` (a scene file, a chapter intent or a page) and keyed by `docKey`. One renderer component, `DocEditor`, edits any of them.
 
@@ -66,27 +66,37 @@ Every Claude call starts with one guide (`src/shared/briefing.ts`). The guide de
 Each role's own instructions follow the guide: the planner's in `planner.ts`, the writer's in `prompts.ts`, and each background job's next to its code (`jobSystem`).
 
 Context:
-- **Planner.** It sees the whole book.
-- **Writer.** It also sees the whole book, through `writerBookContext`: direction, the bible, the manuscript with notes, open alerts, and the chat between the author and the planner.
+- **Planner.** It sees the whole book and the event log.
+- **Writer.** It also sees the whole book (direction, the bible, the manuscript with notes, open alerts and the conversation so far, through `writerBookContext`) and the event log after it.
 - **Ghost text.** It stays lean, because it has to be fast.
 - **Long books.** A full-length novel fits. Past roughly 150k tokens, a snapshot drops notes first, then the prose outside the chapter in focus. Summaries are always kept.
+
+## The event log
+
+What happened in the book, in order (`src/main/eventlog.ts`): the author's chat messages and the planner's replies, actions (Draft it, alternatives, a rewrite or humanize request, a merged or undone chapter change, a restore), Claude's suggestions taken or not taken, Claude's words accepted as they are, edits, bible changes and alerts opening or closing. Each event is rendered to text once, with a `[YYYY-MM-DD HH:MM]` stamp, and never re-rendered, so the log only grows. It is also appended to `.cyberkitty/log.jsonl`, the book's command history.
+
+Edits are not logged per keystroke. When the log is brought up to date (before any action is logged, at every call that reads the log, and when work settles), each document is compared with how it read last time. The changed paragraphs are logged in full as they read now (`src/shared/edits.ts`): "now reads … (was …)", "added after …", "removed". Paragraphs that are Claude's unreviewed or updated words carry a tag. The comparison runs one at a time and never throws, so logging cannot hold up the work it records.
+
+Events fall into batches. A batch closes whenever a call reads the log, so a prompt carries one block per batch, and the previous call's cache entry is found by the lookback.
 
 ## Prompt caching
 
 Caching is a prefix match: one changed byte invalidates everything after it. The book changes constantly, so every call that carries it is laid out from never-changing to always-changing:
 
 1. The guide and the role's instructions (plus the style page for the writer). Static; cached 1 hour.
-2. A frozen snapshot of the whole book (`src/main/snapshot.ts`). Byte-identical from call to call; cached 1 hour.
-3. What changed since the snapshot, as the current text of each changed document (scene, page, chapter intent; bible entries as lines; the table of contents when scenes were added or removed), labelled as replacing the snapshot's version. Then whatever churns anyway: open alerts, the chat, recent corrections. The writer caches this for 5 minutes, so back-to-back calls (alternatives, a run of rewrites) reuse it.
-4. The task.
+2. A frozen snapshot of the whole book (`src/main/snapshot.ts`), with the open alerts and the conversation as they stood when it was taken. Byte-identical from call to call; cached 1 hour.
+3. The event log since the snapshot, one block per batch. The cache point (1 hour) sits on the newest block, as late as possible, because the history never changes once written. Earlier blocks are a prefix of later calls.
+4. The task, carrying the current text of whatever it acts on (the scene being drafted, the passage being rewritten, recent corrections). Never cached.
 
-Whole documents rather than diffs, because prose diffs are hard to read and a whole scene is unambiguous. The scan relies on `fileAlert` checking quotes against the current text, so a quote from a superseded version is never filed.
+The scan works differently. It gets the current text of each changed document (scene, page, chapter intent; bible entries as lines; the table of contents when scenes were added or removed), labelled as replacing the snapshot's version, rather than the history. It checks the book as it reads now, and `fileAlert` verifies every quote against the current text, so a quote from a superseded version is never filed.
 
 Each role keeps its own snapshot (`writer`, `scan`, `planner`), retaken when:
-- the changes outgrow 20% of the snapshot (at least 8k characters, at most 120k, about 30k tokens), since carrying them would soon cost more than a fresh 1-hour write, or
+- the history (or, for the scan, the changes) outgrows 20% of the snapshot (at least 8k characters, at most 120k, about 30k tokens), since carrying it would soon cost more than a fresh 1-hour write, or
 - nothing used it for 55 minutes. The 1-hour entry has expired by then, so a fresh snapshot costs nothing extra.
 
-Breakpoints stay within the API's rules: at most four per request, and 1-hour entries before 5-minute ones. The guide is its own first block everywhere, so calls on the same model can share it. Tests in `test/caching.test.ts` pin that the snapshot survives edits, new bible entries and chat byte for byte, and is retaken when it should be.
+A retake folds the history into the new snapshot, and prompts carry the log only from there on (the file on disk keeps all of it).
+
+Breakpoints stay within the API's rules: at most four per request, and 1-hour entries before 5-minute ones. The guide is its own first block everywhere, so calls on the same model can share it. If many batches pile up between two writer calls (a long chat, say), the lookback can miss the previous entry; the snapshot's own breakpoint still hits, so only the history is written again. Tests in `test/caching.test.ts` pin that the snapshot survives edits and bible changes byte for byte, that the history only appends, that suggestions are logged as taken or not, and that the snapshot is retaken when it should be.
 
 What a cached read costs on a full novel (about 150k tokens): Sonnet $0.015, Opus $0.03. A fresh 1-hour write: Sonnet $0.60, Opus $1.20.
 
@@ -94,9 +104,9 @@ How much Claude volunteers is the author's setting and is passed to the planner 
 
 ## The planner
 
-- One long-lived agent session per book (`src/main/planner.ts`). System blocks: the guide, the instructions (1-hour breakpoint), the frozen book snapshot (1 hour), then what changed since it, open alerts and the tail of earlier chat (1 hour). The conversation is cached automatically, also for 1 hour, since the author replies at a human pace.
-- Each author message is an event carrying the place (page, paragraph, selection), attached passages, and what changed since the planner last heard, as current text up to 40k characters and as a list of names past that (it reads those with `read_doc`).
-- A new session starts when the last one has been idle 55 minutes (its cache has expired, so a current book costs nothing extra), when the conversation passes 100k tokens beyond the book, or when the API rejects a request. The frozen snapshot is reused while it is warm. A stop or a passing error keeps the session: tool calls that never ran get an error result, and the next event tells the planner what the author saw of a stopped reply.
+- One long-lived agent session per book (`src/main/planner.ts`). System blocks: the guide, the instructions (1-hour breakpoint), the frozen book snapshot (1 hour), then the event log since the snapshot (1 hour). The conversation is cached automatically, also for 1 hour, since the author replies at a human pace.
+- Each author message is an event carrying what happened since the planner last heard (the log, leaving out its own replies and tool use, which it already has), then the place (page, paragraph, selection), attached passages and the message. Past 40k characters the history comes as one line per event, and the planner reads current text with `read_doc`. The message, the reply and each tool use go into the log, so the writer and later sessions see them.
+- A new session starts when the last one has been idle 55 minutes (its cache has expired, so a current book costs nothing extra), when the conversation passes 100k tokens beyond the book, or when the API rejects a request. The frozen snapshot is reused while it is warm. A stop or a passing error keeps the session: tool calls that never ran get an error result, and the log tells the planner what the author saw of a stopped reply.
 - Tools: `read_doc`, `suggest_edit` and `suggest_insert` (notes, pages, chapter intents; refused on prose), `rewrite_prose` and `draft_prose` (brief the writer; result is a suggestion), `add_bible_idea`, `file_alert`, `add_todo`, `propose_change_spec`, `draw_diagram`. Inputs are validated with zod. Tool results hand back `ck:` links the planner uses in its reply.
 - `ck:` links (`src/shared/links.ts`) address scenes, pages, chapters, alerts, changes and bible entries, with an optional quote that is found by matching text, like an anchor.
 
@@ -111,5 +121,5 @@ Spec (structured call, the author edits it), then the writer rewrites each scene
 
 ## Testing
 
-- `npm test`: Vitest unit tests for anchors and healing, notes conventions, prompts, the book store, history and restore, tells, links, quote location, bible merging, SVG sanitizing, alert keys and the change diff.
+- `npm test`: Vitest unit tests for anchors and healing, notes conventions, prompts, the book store, history and restore, tells, links, quote location, bible merging, SVG sanitizing, alert keys, the change diff, and the event log and prompt caching.
 - `npm run e2e`: launches the built app with Playwright's Electron driver on a copy of the sample book and the stand-in model, and walks the v1: draft, accept, edit, outside edit, a humanize suggestion, a chat suggestion, the bible and timeline, a todo, a direction page, a chapter change with merge and undo, history and diagrams.

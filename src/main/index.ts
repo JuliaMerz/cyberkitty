@@ -14,6 +14,7 @@ import { send, state } from './state'
 import { alertStore, bibleStore, changeStore, chatStore, diagramStore, logCorrection, summaryStore } from './stores'
 import { resetPlanner, sendChat, stopChat } from './planner'
 import { resetSnapshots } from './snapshot'
+import { logAction, logChanges, logEvent, noteMarks, resetLog } from './eventlog'
 import { deleteEntry, saveEntry } from './bible'
 import { addTodo, refreshAlerts, setAlertStatus } from './alerts'
 import { settle } from './settling'
@@ -54,11 +55,24 @@ function refreshTree(): void {
 }
 state.onDirty = refreshTree
 
+const HUMANIZE_NAMES: Record<string, string> = { plainer: 'plainer', shorter: 'shorter', rougher: 'rougher', concrete: 'more concrete', sample: 'closer-to-my-samples' }
+
+async function sceneTitle(sceneId: string): Promise<string> {
+  return (await requireBook().scenes()).find((s) => s.id === sceneId)?.title ?? sceneId
+}
+
+async function refLabelFor(ref: DocRef): Promise<string> {
+  if (ref.kind === 'page') return `the ${ref.name} page`
+  if (ref.kind === 'chapter') return `the intent of ${ref.chapterId}`
+  return `the ${ref.file} of “${await sceneTitle(ref.sceneId)}” (${ref.sceneId})`
+}
+
 async function openBook(dir: string): Promise<BookTree | null> {
   if (!(await Book.isBook(dir))) return null
   await watcher?.close()
   resetPlanner()
   resetSnapshots()
+  resetLog()
   state.book = new Book(dir)
   state.history = new History(dir)
   state.lastWritten.clear()
@@ -268,6 +282,7 @@ function registerIpc(): void {
     watcher = null
     resetPlanner()
     resetSnapshots()
+    resetLog()
     state.book = null
     state.history = null
     state.openDocs.clear()
@@ -313,6 +328,7 @@ function registerIpc(): void {
     scheduleSettle()
   })
   ipcMain.handle('doc:write-marks', async (_e, ref: DocRef, marks: MarkRecord[]) => {
+    noteMarks(ref, marks)
     await requireBook().writeDocMarks(ref, marks)
     refreshTree()
   })
@@ -329,7 +345,9 @@ function registerIpc(): void {
     const ctrl = new AbortController()
     drafts.set(jobId, ctrl)
     const lane = (await loadSettings()).lanes.writer
+    const title = await sceneTitle(req.sceneId)
     void (async () => {
+      await logAction('author', `The author pressed Draft it in “${title}” (${req.sceneId})${req.beats?.trim() ? `, for these beats:\n${req.beats.trim()}` : req.proseAfter.trim() ? ', at a gap in the prose' : ''}`)
       await state.history?.snapshot('Before Claude drafted')
       const result = await runDraft(req, lane, ctrl.signal, (delta) => send('draft-delta', jobId, delta))
       drafts.delete(jobId)
@@ -339,8 +357,15 @@ function registerIpc(): void {
     return jobId
   })
   ipcMain.on('draft:cancel', (_e, jobId: string) => drafts.get(jobId)?.abort())
-  ipcMain.handle('tool:alternatives', (_e, req: AlternativesRequest) => tool(() => alternatives(req)))
-  ipcMain.handle('tool:rewrite', (_e, req: RewriteRequest) => tool(() => rewrite(req)))
+  ipcMain.handle('tool:alternatives', async (_e, req: AlternativesRequest) => {
+    await logAction('author', `The author asked for other ways to say “${req.sentence.trim()}” in “${await sceneTitle(req.sceneId)}” (${req.sceneId})`)
+    return tool(() => alternatives(req))
+  })
+  ipcMain.handle('tool:rewrite', async (_e, req: RewriteRequest) => {
+    const what = req.tool ? `a ${HUMANIZE_NAMES[req.tool]} version` : 'a rewrite'
+    await logAction('author', `The author asked the writer for ${what} of a passage in ${await refLabelFor(req.ref)}: “${req.quote.trim()}”${req.instruction ? `\nTheir instruction: ${req.instruction}` : ''}`)
+    return tool(() => rewrite(req))
+  })
   ipcMain.handle('tool:ghost', (_e, req: { sceneId: string; before: string }) => tool(() => ghostText(req.sceneId, req.before)))
 
   ipcMain.handle('chat:get', async () => (state.book ? chatStore.read() : []))
@@ -379,15 +404,28 @@ function registerIpc(): void {
   ipcMain.handle('changes:propose', (_e, chapterId: string, request: string) => tool(() => proposeChange(chapterId, request)))
   ipcMain.handle('changes:save', (_e, change: ChangeSpec) => saveChange(change))
   ipcMain.handle('changes:run', (_e, id: string) => runChange(id))
-  ipcMain.handle('changes:merge', (_e, id: string, decisions: HunkDecision[]) => mergeChange(id, decisions))
-  ipcMain.handle('changes:undo', (_e, id: string) => undoChange(id))
+  ipcMain.handle('changes:merge', async (_e, id: string, decisions: HunkDecision[]) => {
+    await logChanges()
+    await mergeChange(id, decisions)
+    // What the action changed is logged after it, as edits.
+    logEvent('author', `The author merged the chapter change “${(await changeStore.read()).find((c) => c.id === id)?.title ?? id}” into the book (${decisions.length} scene${decisions.length === 1 ? '' : 's'}).`)
+  })
+  ipcMain.handle('changes:undo', async (_e, id: string) => {
+    await logChanges()
+    await undoChange(id)
+    // What the action changed is logged after it, as edits.
+    logEvent('author', `The author undid the chapter change “${(await changeStore.read()).find((c) => c.id === id)?.title ?? id}”.`)
+  })
 
   ipcMain.handle('history:get', async () => (state.history ? state.history.log(100) : []))
   ipcMain.handle('history:restore', async (_e, oid: string) => {
     const b = requireBook()
     const h = state.history
     if (!h) return
+    await logChanges()
     const touched = await h.restore(oid)
+    // What the action changed is logged after it, as edits.
+    logEvent('author', `The author restored the book to an earlier snapshot (${touched.length} file${touched.length === 1 ? '' : 's'} changed back).`)
     for (const rel of touched) {
       const abs = b.abs(rel)
       const ref = b.refForPath(abs)

@@ -1,20 +1,25 @@
 // Prompt caching only works if the cached prefix stays byte-identical. These
-// tests pin down that the frozen book snapshot survives ordinary work (edits,
-// new bible entries, chat) and is retaken only when it should be.
+// tests pin down that the frozen book snapshot survives ordinary work, that
+// the history after it only ever grows (so earlier batches stay cached), and
+// that the snapshot is retaken only when it should be.
 
 import { cpSync, mkdtempSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { Book } from '../src/main/project'
-import { state } from '../src/main/state'
-import { bibleStore, chatStore } from '../src/main/stores'
-import { bookContextFor, changesTooLarge, COLD_MS, resetSnapshots, writerBookContext } from '../src/main/snapshot'
-import { writerSystem } from '@shared/prompts'
+import { makeAnchor } from '@shared/anchors'
+import { describeEdits } from '@shared/edits'
 import { jobSystem } from '@shared/briefing'
 import { costUsd } from '@shared/pricing'
+import { withHistory, writerSystem } from '@shared/prompts'
+import type { DocRef, MarkRecord } from '@shared/types'
+import { Book } from '../src/main/project'
+import { state } from '../src/main/state'
+import { bibleStore } from '../src/main/stores'
+import { closeBatch, eventsSince, logChanges, logEvent, noteMarks, renderBatches, resetLog } from '../src/main/eventlog'
+import { bookContextFor, changesTooLarge, COLD_MS, resetSnapshots } from '../src/main/snapshot'
 
-const WRITER = { style: false, notes: true }
+const WRITER = { style: false, notes: true, history: true }
 const MIN = 60_000
 
 async function openSample(): Promise<Book> {
@@ -22,15 +27,16 @@ async function openSample(): Promise<Book> {
   cpSync(path.resolve('resources/sample-book'), dir, { recursive: true })
   state.book = new Book(dir)
   resetSnapshots()
+  resetLog()
   return state.book
 }
 
-async function firstScene(b: Book): Promise<{ id: string; prose: string }> {
+async function firstScene(b: Book): Promise<{ id: string; ref: DocRef; prose: string }> {
   const s = (await b.scenes())[0]
-  return { id: s.id, prose: s.prose ?? '' }
+  return { id: s.id, ref: { kind: 'scene', sceneId: s.id, file: 'prose' }, prose: s.prose ?? '' }
 }
 
-describe('frozen book snapshot', () => {
+describe('frozen book snapshot with history', () => {
   let book: Book
   beforeEach(async () => {
     book = await openSample()
@@ -42,59 +48,58 @@ describe('frozen book snapshot', () => {
     const b = await bookContextFor('writer', WRITER, 5 * MIN)
     expect(b.snapshot).toBe(a.snapshot)
     expect(a.snapshot).not.toMatch(/taken=|\d{4}-\d\d-\d\dT\d\d:/)
+    expect(a.snapshot).toContain('<conversation_so_far>')
+    expect(a.snapshot).toContain('<open_alerts>')
   })
 
-  it('stays byte-identical through a prose edit and sends the new text after it', async () => {
-    const t0 = 0
-    const first = await bookContextFor('writer', WRITER, t0)
+  it('stays byte-identical through an edit, which arrives as a paragraph in the history', async () => {
+    const first = await bookContextFor('writer', WRITER, 0)
+    expect(first.history).toEqual([])
     const scene = await firstScene(book)
-    await book.writeDoc({ kind: 'scene', sceneId: scene.id, file: 'prose' }, `${scene.prose.trim()}\n\nA gull landed on the rail.\n`)
-    const next = await bookContextFor('writer', WRITER, t0 + 2 * MIN)
+    await book.writeDoc(scene.ref, `${scene.prose.trim()}\n\nA gull landed on the rail.\n`)
+    const next = await bookContextFor('writer', WRITER, 2 * MIN)
     expect(next.snapshot).toBe(first.snapshot)
-    expect(first.snapshot).not.toContain('A gull landed on the rail.')
-    expect(next.changes).toContain('A gull landed on the rail.')
-    expect(next.changes).toContain('replaces what the snapshot shows')
-    expect(next.changes).toContain(`<scene id="${scene.id}"`)
+    expect(next.history).toHaveLength(1)
+    expect(next.history[0]).toContain(`Changes in the prose of`)
+    expect(next.history[0]).toContain('“A gull landed on the rail.”')
   })
 
-  it('stays byte-identical through new bible entries and chat', async () => {
-    const first = await bookContextFor('writer', WRITER)
+  it('only ever appends to the history, one block per batch', async () => {
+    await bookContextFor('writer', WRITER, 0)
+    const scene = await firstScene(book)
+    await book.writeDoc(scene.ref, `${scene.prose.trim()}\n\nA gull landed on the rail.\n`)
+    logEvent('author', 'The author wrote in the chat (on Arrival): What if the gull comes back?')
+    const one = await bookContextFor('writer', WRITER, MIN)
+    await book.writeDoc(scene.ref, `${scene.prose.trim()}\n\nA gull landed on the rail.\n\nIt came back.\n`)
+    const two = await bookContextFor('writer', WRITER, 2 * MIN)
+    expect(one.history).toHaveLength(1)
+    expect(two.history).toHaveLength(2)
+    // The earlier block is untouched, so it is read from cache.
+    expect(two.history[0]).toBe(one.history[0])
+    expect(two.history[1]).toContain('“It came back.”')
+    expect(two.history[1]).not.toContain(': “A gull landed on the rail.”')
+  })
+
+  it('logs bible changes and keeps them out of the snapshot', async () => {
+    const first = await bookContextFor('writer', WRITER, 0)
     await bibleStore.update((all) => [
       ...all,
       { id: 'b-test', type: 'world', subject: 'The ferry', text: 'The ferry has a blue hull.', source: { kind: 'planned' }, updatedAt: '2026-11-27T00:00:00Z' }
     ])
-    await chatStore.update((all) => [...all, { id: 'c-test', role: 'author', text: 'What if the gull comes back?', at: '2026-11-27T00:00:00Z' }])
-    const ctx = await writerBookContext()
-    expect(ctx.snapshot).toBe(first.snapshot)
-    expect(ctx.tail).toContain('<bible_changes>')
-    expect(ctx.tail).toContain('The ferry has a blue hull.')
-    expect(ctx.tail).toContain('What if the gull comes back?')
-  })
-
-  it('reports nothing changed when nothing did', async () => {
-    await bookContextFor('writer', WRITER, 0)
-    const again = await bookContextFor('writer', WRITER, MIN)
-    expect(again.changes).toContain('nothing has changed')
-  })
-
-  it('lists a new scene and the contents as they are now', async () => {
-    const first = await bookContextFor('writer', WRITER, 0)
-    const chapter = (await book.tree()).chapters[0].id
-    const id = await book.createScene(chapter, 'Fog', '# Fog\n\n- Fog rolls in.\n')
     const next = await bookContextFor('writer', WRITER, MIN)
     expect(next.snapshot).toBe(first.snapshot)
-    expect(next.changes).toContain(`<scene id="${id}"`)
-    expect(next.changes).toContain('<contents_now>')
+    expect(next.history.join('\n')).toContain('The story bible changed')
+    expect(next.history.join('\n')).toContain('The ferry has a blue hull.')
   })
 
-  it('is retaken once its cache would be cold anyway', async () => {
+  it('is retaken once its cache would be cold anyway, folding in the history', async () => {
     const first = await bookContextFor('writer', WRITER, 0)
     const scene = await firstScene(book)
-    await book.writeDoc({ kind: 'scene', sceneId: scene.id, file: 'prose' }, `${scene.prose.trim()}\n\nThe fog lifted.\n`)
+    await book.writeDoc(scene.ref, `${scene.prose.trim()}\n\nThe fog lifted.\n`)
     const later = await bookContextFor('writer', WRITER, COLD_MS + MIN)
     expect(later.snapshot).not.toBe(first.snapshot)
     expect(later.snapshot).toContain('The fog lifted.')
-    expect(later.changes).toContain('nothing has changed')
+    expect(later.history).toEqual([])
   })
 
   it('stays warm while it keeps being used', async () => {
@@ -104,26 +109,103 @@ describe('frozen book snapshot', () => {
     }
   })
 
-  it('is retaken when the changes pile up', async () => {
+  it('is retaken when the history piles up', async () => {
     const first = await bookContextFor('writer', WRITER, 0)
     const scene = await firstScene(book)
     const long = Array.from({ length: 3000 }, (_, i) => `Sentence number ${i} about the harbour.`).join(' ')
-    await book.writeDoc({ kind: 'scene', sceneId: scene.id, file: 'prose' }, long)
+    await book.writeDoc(scene.ref, long)
     const next = await bookContextFor('writer', WRITER, MIN)
     expect(next.snapshot).not.toBe(first.snapshot)
     expect(next.snapshot).toContain('Sentence number 2999')
+    expect(next.history).toEqual([])
   })
 
-  it('keeps one snapshot per role', async () => {
-    const writer = await bookContextFor('writer', WRITER, 0)
-    const scan = await bookContextFor('scan', { style: false, notes: false }, 0)
-    expect(scan.snapshot).not.toBe(writer.snapshot)
-    expect(scan.snapshot).not.toContain('<notes>')
+  it('gives the scan whole current documents instead of history', async () => {
+    const scan = { style: false, notes: false }
+    const first = await bookContextFor('scan', scan, 0)
+    expect(first.snapshot).not.toContain('<notes>')
+    const scene = await firstScene(book)
+    await book.writeDoc(scene.ref, `${scene.prose.trim()}\n\nThe fog lifted.\n`)
+    const next = await bookContextFor('scan', scan, MIN)
+    expect(next.snapshot).toBe(first.snapshot)
+    expect(next.changes).toContain(`<scene id="${scene.id}"`)
+    expect(next.changes).toContain('The fog lifted.')
+  })
+})
+
+describe('event log', () => {
+  let book: Book
+  beforeEach(async () => {
+    book = await openSample()
+  })
+
+  it('tells accepted suggestions from rejected ones', async () => {
+    await closeBatch()
+    const scene = await firstScene(book)
+    const text = `${scene.prose.trim()}\n\nThe ferry was late.\n\nThe gulls were loud.\n`
+    await book.writeDoc(scene.ref, text)
+    await logChanges()
+    const late = text.indexOf('The ferry was late.')
+    const loud = text.indexOf('The gulls were loud.')
+    const mark = (id: string, from: number, to: number, replacement: string): MarkRecord => ({
+      id,
+      kind: 'suggested',
+      file: 'prose',
+      anchor: makeAnchor(text, from, to),
+      origin: { source: 'rewrite', at: '2026-11-27T00:00:00Z' },
+      replacement
+    })
+    const marks = [mark('s1', late, late + 19, 'The ferry ran late.'), mark('s2', loud, loud + 20, 'The gulls screamed.')]
+    noteMarks(scene.ref, marks)
+    await book.writeDocMarks(scene.ref, marks)
+    const since = eventsSince(0).length
+    // The author accepts the first and rejects the second.
+    await book.writeDoc(scene.ref, text.replace('The ferry was late.', 'The ferry ran late.'))
+    await book.writeDocMarks(scene.ref, [])
+    await logChanges()
+    const log = eventsSince(0).slice(since).map((e) => e.text).join('\n')
+    expect(log).toContain('accepted a suggestion')
+    expect(log).toContain('“The ferry ran late.” in place of “The ferry was late.”')
+    expect(log).toContain('did not take a suggestion')
+    expect(log).toContain('“The gulls screamed.”')
+  })
+
+  it('renders one block per batch, in order', () => {
+    resetLog()
+    logEvent('author', 'one')
+    logEvent('author', 'two')
+    expect(renderBatches(eventsSince(0))).toHaveLength(1)
+  })
+
+  it('leaves the planner’s own doings out of its view', async () => {
+    logEvent('planner', 'The planner replied: hello')
+    logEvent('planner', 'The planner: suggested an edit', 'planner')
+    logEvent('author', 'The author wrote in the chat: hi')
+    expect(eventsSince(0, 'planner').map((e) => e.text)).toEqual([expect.stringContaining('The author wrote in the chat: hi')])
+  })
+})
+
+describe('edits as paragraphs', () => {
+  it('gives each changed paragraph as it reads now, with what it replaced', () => {
+    const before = '# Arrival\n\nThe ferry was late.\n\nMara stepped off.\n\nThe shed was shut.\n'
+    const after = '# Arrival\n\nThe ferry ran an hour late.\n\nMara stepped off.\n\nA gull landed.\n'
+    expect(describeEdits(before, after)).toEqual(['- now reads: “The ferry ran an hour late.” (was: “The ferry was late.”)', '- now reads: “A gull landed.” (was: “The shed was shut.”)'])
+  })
+
+  it('says where an added paragraph goes and lists removals', () => {
+    expect(describeEdits('A.\n\nB.\n', 'A.\n\nNew.\n\nB.\n')).toEqual(['- added after “A.”: “New.”'])
+    expect(describeEdits('A.\n\nB.\n', 'B.\n')).toEqual(['- removed: “A.”'])
+    expect(describeEdits('', 'First.\n')).toEqual(['- added at the start: “First.”'])
+    expect(describeEdits('A.\n', 'A.\n\nB.\n\nC.\n')).toEqual(['- added after “A.”:\n  “B.”\n  “C.”'])
+  })
+
+  it('tags paragraphs, for example as Claude’s unreviewed words', () => {
+    expect(describeEdits('A.\n', 'A.\n\nB.\n', (p) => (p === 'B.' ? ' [Claude’s words, not reviewed yet]' : ''))).toEqual(['- added after “A.”: “B.” [Claude’s words, not reviewed yet]'])
   })
 })
 
 describe('retake threshold', () => {
-  it('weighs the changes against the size of the snapshot', () => {
+  it('weighs what follows the snapshot against its size', () => {
     expect(changesTooLarge(5_000, 10_000)).toBe(false)
     expect(changesTooLarge(9_000, 10_000)).toBe(true)
     expect(changesTooLarge(100_000, 600_000)).toBe(false)
@@ -133,28 +215,27 @@ describe('retake threshold', () => {
 
 type Block = { cache_control?: { type: 'ephemeral'; ttl?: '5m' | '1h' } }
 
-/** At most four breakpoints, and every 1-hour one before any 5-minute one. */
+/** At most four breakpoints in a request, and no 1-hour one after a 5-minute one. */
 function validBreakpoints(blocks: Block[]): boolean {
   const ttls = blocks.flatMap((b) => (b.cache_control ? [b.cache_control.ttl ?? '5m'] : []))
   const first5m = ttls.indexOf('5m')
   return ttls.length <= 4 && (first5m === -1 || !ttls.slice(first5m).includes('1h'))
 }
 
-describe('system blocks', () => {
-  it('orders the writer from static to volatile, within the breakpoint rules', () => {
-    const sys = writerSystem('Short sentences.', [{ before: 'She felt sad.', after: 'She sat.' }], { snapshot: '<book_snapshot/>', tail: '<changed_since_snapshot/>' })
-    expect(sys.map((b) => b.cache_control?.ttl ?? (b.cache_control ? '5m' : '-'))).toEqual(['1h', '-', '1h', '1h', '5m'])
-    expect(sys[2].text).toContain('Short sentences.')
-    expect(sys[2].text).not.toContain('She sat.')
-    expect(sys[3].text).toBe('<book_snapshot/>')
-    expect(sys[4].text).toContain('<changed_since_snapshot/>')
-    expect(sys[4].text).toContain('She sat.')
-    expect(validBreakpoints(sys)).toBe(true)
+describe('request blocks', () => {
+  it('runs the writer from static to volatile, with the cache point at the end of the history', () => {
+    const system = writerSystem('Short sentences.', '<book_snapshot/>')
+    const user = withHistory(['<events>a</events>', '<events>b</events>'], '<task>Draft it.</task>')
+    expect(system.map((b) => b.cache_control?.ttl ?? '-')).toEqual(['1h', '-', '1h', '1h'])
+    expect(user.map((b) => b.cache_control?.ttl ?? '-')).toEqual(['-', '1h', '-'])
+    expect(user.at(-1)?.text).toBe('<task>Draft it.</task>')
+    expect(validBreakpoints([...system, ...user])).toBe(true)
   })
 
-  it('keeps job prompts within the rules too', () => {
+  it('keeps job prompts and lean writer calls within the rules too', () => {
     expect(validBreakpoints(jobSystem('Do the job.'))).toBe(true)
     expect(validBreakpoints(writerSystem(null))).toBe(true)
+    expect(withHistory([], 'task')).toEqual([{ type: 'text', text: 'task' }])
   })
 })
 

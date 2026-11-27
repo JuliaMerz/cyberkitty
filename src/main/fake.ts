@@ -17,7 +17,7 @@ function firstSentence(s: string): string {
 }
 
 export const fake = {
-  async text(args: StreamTextArgs): Promise<StreamTextResult> {
+  async text(args: StreamTextArgs & { user: string }): Promise<StreamTextResult> {
     const notes = /<scene_notes[^>]*>([\s\S]*?)<\/scene_notes>/.exec(args.user)?.[1]
     const beats = /Draft only these beats from the notes:\n([\s\S]*?)(?:\n\n|<\/task>)/.exec(args.user)?.[1] ?? notes ?? ''
     const lines = beats
@@ -78,7 +78,8 @@ export const fake = {
       const scene = /scene_id="([^"]+)"/.exec(text)?.[1]
       const file = /file="(notes|prose)"/.exec(text)?.[1]
       const paragraph = /<paragraph>([\s\S]*?)<\/paragraph>/.exec(text)?.[1]?.trim()
-      if (scene && file === 'notes' && paragraph && /suggest/i.test(text)) {
+      const message = /<message>([\s\S]*?)<\/message>/.exec(text)?.[1] ?? text
+      if (scene && file === 'notes' && paragraph && /suggest/i.test(message)) {
         return {
           content: [
             { type: 'text', text: 'Let me suggest something.', citations: null },
