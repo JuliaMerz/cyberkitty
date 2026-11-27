@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, shell, type MenuItemConstructorOptions } from 'electron'
 import { watch, type FSWatcher } from 'chokidar'
 import { docKey, type AlternativesRequest, type BibleEntry, type BookTree, type ChangeSpec, type Correction, type DocRef, type DraftRequest, type HunkDecision, type MarkRecord, type PassageRef, type Place, type RewriteRequest, type Settings, type ToolResult } from '@shared/types'
 import { firstHeading } from '@shared/notes'
@@ -164,6 +164,88 @@ async function importMarkdown(chapterId: string): Promise<BookTree | null> {
   return treeWithCounts(b)
 }
 
+async function openBookDialog(): Promise<BookTree | null> {
+  const r = await dialog.showOpenDialog(state.win!, { title: 'Open a book folder', properties: ['openDirectory', 'createDirectory'] })
+  if (r.canceled || !r.filePaths[0]) return null
+  const dir = r.filePaths[0]
+  if (!(await Book.isBook(dir))) {
+    const answer = await dialog.showMessageBox(state.win!, {
+      type: 'question',
+      buttons: ['Make it a book', 'Cancel'],
+      defaultId: 0,
+      message: 'This folder is not a CyberKitty book yet.',
+      detail: 'CyberKitty will add the book pages and a manuscript folder. Nothing already there is changed.'
+    })
+    if (answer.response !== 0) return null
+    await Book.create(dir, path.basename(dir))
+  }
+  return openBook(dir)
+}
+
+async function createBookDialog(): Promise<BookTree | null> {
+  const r = await dialog.showSaveDialog(state.win!, {
+    title: 'Create a new book',
+    buttonLabel: 'Create book',
+    nameFieldLabel: 'Book title',
+    defaultPath: path.join(app.getPath('documents'), 'Untitled book')
+  })
+  if (r.canceled || !r.filePath) return null
+  await fs.mkdir(r.filePath, { recursive: true })
+  await Book.create(r.filePath, path.basename(r.filePath))
+  return openBook(r.filePath)
+}
+
+async function openSample(): Promise<BookTree | null> {
+  const target = path.join(app.getPath('documents'), 'CyberKitty sample - The Late Ferry')
+  if (!(await Book.isBook(target))) await fs.cp(sampleBookDir(), target, { recursive: true })
+  return openBook(target)
+}
+
+/** The app menu. Book-level items run here; items that need the page are sent to the UI. */
+function buildMenu(): void {
+  const opened = (p: Promise<BookTree | null>): void => {
+    void p.then((t) => t && send('book-opened', t))
+  }
+  const ui = (cmd: string) => () => send('menu', cmd)
+  const mac = process.platform === 'darwin'
+  const template: MenuItemConstructorOptions[] = [
+    ...(mac ? [{ role: 'appMenu' as const }] : []),
+    {
+      label: 'File',
+      submenu: [
+        { label: 'New Book…', accelerator: 'CmdOrCtrl+Shift+N', click: () => opened(createBookDialog()) },
+        { label: 'New Chapter…', accelerator: 'CmdOrCtrl+Alt+N', click: ui('new-chapter') },
+        { label: 'New Scene…', accelerator: 'CmdOrCtrl+N', click: ui('new-scene') },
+        { type: 'separator' },
+        { label: 'Open Book…', accelerator: 'CmdOrCtrl+O', click: () => opened(openBookDialog()) },
+        { label: 'Open the Sample Book', click: () => opened(openSample()) },
+        { label: 'Import Markdown as Scenes…', click: ui('import') },
+        { label: 'Close Book', click: ui('close-book') },
+        { type: 'separator' },
+        { label: 'Settings', accelerator: 'CmdOrCtrl+,', click: ui('settings') },
+        { type: 'separator' },
+        mac ? { role: 'close' } : { role: 'quit' }
+      ]
+    },
+    { role: 'editMenu' },
+    {
+      label: 'View',
+      submenu: [
+        { label: 'Toggle Chat', accelerator: 'CmdOrCtrl+Shift+L', click: ui('toggle-chat') },
+        { type: 'separator' },
+        { role: 'resetZoom' },
+        { role: 'zoomIn' },
+        { role: 'zoomOut' },
+        { type: 'separator' },
+        { role: 'togglefullscreen' },
+        ...(app.isPackaged ? [] : [{ role: 'toggleDevTools' as const }])
+      ]
+    },
+    { role: 'windowMenu' }
+  ]
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template))
+}
+
 function registerIpc(): void {
   ipcMain.handle('settings:get', () => loadSettings())
   ipcMain.handle('settings:set', async (_e, patch: Partial<Settings>) => {
@@ -175,39 +257,18 @@ function registerIpc(): void {
   ipcMain.handle('key:set', (_e, key: string) => setApiKey(key))
   ipcMain.handle('spend:get', () => getSpend())
 
-  ipcMain.handle('book:open-dialog', async () => {
-    const r = await dialog.showOpenDialog(state.win!, { title: 'Open a book folder', properties: ['openDirectory', 'createDirectory'] })
-    if (r.canceled || !r.filePaths[0]) return null
-    const dir = r.filePaths[0]
-    if (!(await Book.isBook(dir))) {
-      const answer = await dialog.showMessageBox(state.win!, {
-        type: 'question',
-        buttons: ['Make it a book', 'Cancel'],
-        defaultId: 0,
-        message: 'This folder is not a CyberKitty book yet.',
-        detail: 'CyberKitty will add the book pages and a manuscript folder. Nothing already there is changed.'
-      })
-      if (answer.response !== 0) return null
-      await Book.create(dir, path.basename(dir))
-    }
-    return openBook(dir)
-  })
-  ipcMain.handle('book:create-dialog', async () => {
-    const r = await dialog.showSaveDialog(state.win!, {
-      title: 'Create a new book',
-      buttonLabel: 'Create book',
-      nameFieldLabel: 'Book title',
-      defaultPath: path.join(app.getPath('documents'), 'Untitled book')
-    })
-    if (r.canceled || !r.filePath) return null
-    await fs.mkdir(r.filePath, { recursive: true })
-    await Book.create(r.filePath, path.basename(r.filePath))
-    return openBook(r.filePath)
-  })
-  ipcMain.handle('book:open-sample', async () => {
-    const target = path.join(app.getPath('documents'), 'CyberKitty sample - The Late Ferry')
-    if (!(await Book.isBook(target))) await fs.cp(sampleBookDir(), target, { recursive: true })
-    return openBook(target)
+  ipcMain.handle('book:open-dialog', () => openBookDialog())
+  ipcMain.handle('book:create-dialog', () => createBookDialog())
+  ipcMain.handle('book:open-sample', () => openSample())
+  ipcMain.handle('book:close', async () => {
+    await state.history?.snapshot('Closed the book')
+    await watcher?.close()
+    watcher = null
+    resetPlanner()
+    state.book = null
+    state.history = null
+    state.openDocs.clear()
+    await saveSettings({ lastBook: null })
   })
   ipcMain.handle('book:import', (_e, chapterId: string) => importMarkdown(chapterId))
   ipcMain.handle('book:open', (_e, dir: string) => openBook(dir))
@@ -370,6 +431,7 @@ async function createWindow(): Promise<void> {
 
 app.whenReady().then(async () => {
   registerIpc()
+  buildMenu()
   setSpendListener((todayUsd, capUsd) => send('spend', { todayUsd, capUsd }))
   const settings = await loadSettings()
   const initial = process.env.CYBERKITTY_BOOK ?? settings.lastBook

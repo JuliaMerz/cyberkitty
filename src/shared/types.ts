@@ -418,6 +418,7 @@ export interface CkApi {
   openSampleBook(): Promise<BookTree | null>
   importMarkdownDialog(chapterId: string): Promise<BookTree | null>
   openBook(path: string): Promise<BookTree | null>
+  closeBook(): Promise<void>
   getBook(): Promise<BookTree | null>
   createChapter(title: string): Promise<BookTree>
   createScene(chapterId: string, title: string): Promise<{ tree: BookTree; sceneId: string }>
@@ -476,7 +477,11 @@ export interface CkApi {
   onDataChanged(cb: (what: 'bible' | 'summaries' | 'alerts' | 'changes' | 'diagrams' | 'history') => void): () => void
   onJob(cb: (job: JobStatus) => void): () => void
   onNavigate(cb: (target: NavTarget) => void): () => void
+  onBookOpened(cb: (tree: BookTree) => void): () => void
+  onMenu(cb: (command: MenuCommand) => void): () => void
 }
+
+export type MenuCommand = 'new-chapter' | 'new-scene' | 'import' | 'close-book' | 'settings' | 'toggle-chat'
 
 /** Where a link in chat, an alert or the bible points. */
 export type NavTarget =

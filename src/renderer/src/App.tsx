@@ -38,6 +38,40 @@ function store(key: string, value: unknown): void {
   }
 }
 
+function currentChapter(tree: BookTree, route: Route | null): string | undefined {
+  if (route?.kind === 'chapter') return route.chapterId
+  if (route?.kind === 'scene') return tree.chapters.find((c) => c.scenes.some((s) => s.id === route.sceneId))?.id
+  return tree.chapters.at(-1)?.id
+}
+
+/** A small title prompt for new chapters and scenes from the menu. */
+function NamePrompt({ label, onDone, onCancel }: { label: string; onDone: (title: string) => void; onCancel: () => void }): React.JSX.Element {
+  const [value, setValue] = useState('')
+  return (
+    <div className="modal-back" onMouseDown={onCancel}>
+      <form
+        className="modal"
+        onMouseDown={(e) => e.stopPropagation()}
+        onSubmit={(e) => {
+          e.preventDefault()
+          if (value.trim()) onDone(value.trim())
+        }}
+      >
+        <label className="modal-label">{label}</label>
+        <input className="field" autoFocus placeholder="Title" value={value} onChange={(e) => setValue(e.target.value)} onKeyDown={(e) => e.key === 'Escape' && onCancel()} />
+        <div className="row-end">
+          <button type="button" className="linkish" onClick={onCancel}>
+            Cancel
+          </button>
+          <button type="submit" className="btn btn-primary" disabled={!value.trim()}>
+            Create
+          </button>
+        </div>
+      </form>
+    </div>
+  )
+}
+
 export function App(): React.JSX.Element {
   const [tree, setTree] = useState<BookTree | null | undefined>(undefined)
   const [settings, setSettings] = useState<Settings | null>(null)
@@ -50,6 +84,11 @@ export function App(): React.JSX.Element {
   const [chatFocus, setChatFocus] = useState(0)
   const [ban, setBan] = useState<string[]>([])
   const [job, setJob] = useState<JobStatus | null>(null)
+  const [prompt, setPrompt] = useState<{ kind: 'chapter' } | { kind: 'scene'; chapterId: string } | null>(null)
+  const routeRef = useRef<Route | null>(null)
+  routeRef.current = route
+  const treeRef = useRef<BookTree | null | undefined>(undefined)
+  treeRef.current = tree
   const jobTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
@@ -68,6 +107,23 @@ export function App(): React.JSX.Element {
         if (j.state !== 'running') jobTimer.current = setTimeout(() => setJob(null), j.state === 'error' ? 15000 : 5000)
       }),
       ck.onNavigate((t) => navigate(t)),
+      ck.onBookOpened((t) => opened(t)),
+      ck.onMenu((cmd) => {
+        const t = treeRef.current
+        const r = routeRef.current
+        if (cmd === 'settings') return setRoute({ kind: 'settings' })
+        if (cmd === 'toggle-chat')
+          return setChatOpen((o) => {
+            store('chatOpen', !o)
+            return !o
+          })
+        if (!t) return
+        if (cmd === 'close-book') return void closeBook()
+        if (cmd === 'new-chapter') return setPrompt({ kind: 'chapter' })
+        const current = currentChapter(t, r)
+        if (cmd === 'new-scene') return setPrompt(current ? { kind: 'scene', chapterId: current } : { kind: 'chapter' })
+        if (cmd === 'import' && current) void ck.importMarkdownDialog(current).then((x) => x && setTree(x))
+      }),
       ck.onFileChanged((e) => {
         if (e.key === 'page:style.md' && e.text !== null) setBan(banList(e.text))
       })
@@ -124,6 +180,26 @@ export function App(): React.JSX.Element {
         : null,
     [navigate, settings, ban, sceneTitle]
   )
+
+  async function closeBook(): Promise<void> {
+    await ck.closeBook()
+    setRoute(null)
+    setPassages([])
+    setTree(null)
+  }
+
+  async function newChapter(title: string): Promise<void> {
+    const t = await ck.createChapter(title)
+    setTree(t)
+    const c = t.chapters.at(-1)
+    if (c) setRoute({ kind: 'chapter', chapterId: c.id })
+  }
+
+  async function newScene(chapterId: string, title: string): Promise<void> {
+    const r = await ck.createScene(chapterId, title)
+    setTree(r.tree)
+    setRoute({ kind: 'scene', sceneId: r.sceneId })
+  }
 
   function opened(t: BookTree | null): void {
     if (!t) return
@@ -214,17 +290,11 @@ export function App(): React.JSX.Element {
             setReveal(null)
             setRoute(r)
           }}
-          onNewChapter={async (title) => {
-            const t = await ck.createChapter(title)
-            setTree(t)
-            const c = t.chapters.at(-1)
-            if (c) setRoute({ kind: 'chapter', chapterId: c.id })
-          }}
-          onNewScene={async (chapterId, title) => {
-            const r = await ck.createScene(chapterId, title)
-            setTree(r.tree)
-            setRoute({ kind: 'scene', sceneId: r.sceneId })
-          }}
+          onNewChapter={(title) => void newChapter(title)}
+          onNewScene={(chapterId, title) => void newScene(chapterId, title)}
+          onNewBook={() => void ck.createBookDialog().then(opened)}
+          onOpenBook={() => void ck.openBookDialog().then(opened)}
+          onCloseBook={() => void closeBook()}
           onToggleChat={() =>
             setChatOpen((o) => {
               store('chatOpen', !o)
@@ -247,6 +317,18 @@ export function App(): React.JSX.Element {
           />
         )}
       </div>
+      {prompt && (
+        <NamePrompt
+          label={prompt.kind === 'chapter' ? 'New chapter' : `New scene in ${tree.chapters.find((c) => c.id === prompt.chapterId)?.title ?? 'this chapter'}`}
+          onCancel={() => setPrompt(null)}
+          onDone={(title) => {
+            const p = prompt
+            setPrompt(null)
+            if (p.kind === 'chapter') void newChapter(title)
+            else void newScene(p.chapterId, title)
+          }}
+        />
+      )}
     </AppCtx.Provider>
   )
 }

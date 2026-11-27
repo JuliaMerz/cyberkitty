@@ -1421,3 +1421,40 @@ textarea.field {
   width: auto;
   margin-top: 3px;
 }
+
+/* Book actions and the title prompt */
+.rail-book-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 2px;
+}
+.rail-book-actions .linkish {
+  color: var(--muted);
+  font-size: 12px;
+}
+.rail-book-actions .linkish:hover {
+  color: var(--blue);
+}
+.modal-back {
+  position: fixed;
+  inset: 0;
+  background: rgba(27, 30, 39, 0.18);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 18vh;
+  z-index: 50;
+}
+.modal {
+  width: min(420px, 90vw);
+  background: #fff;
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.modal-label {
+  font-weight: 600;
+}

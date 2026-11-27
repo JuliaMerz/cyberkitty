@@ -173,6 +173,32 @@ const shots = process.env.SHOTS || fs.mkdtempSync(path.join(os.tmpdir(), 'ck-sho
   await win.waitForSelector('.diagram img')
   await win.screenshot({ path: path.join(shots, '12-diagrams.png') })
 
+  // The File menu: a new scene in the current chapter, then closing the book.
+  const menuClick = (label) =>
+    el.evaluate(({ Menu }, label) => {
+      const find = (items) => {
+        for (const it of items) {
+          if (it.label === label) return it
+          const sub = it.submenu && find(it.submenu.items)
+          if (sub) return sub
+        }
+        return null
+      }
+      find(Menu.getApplicationMenu().items).click()
+    }, label)
+  await win.click('.rail-chapter-title')
+  await menuClick('New Scene…')
+  await win.fill('.modal input', 'The Letter')
+  await win.keyboard.press('Enter')
+  await win.waitForSelector('.rail-row.current:has-text("The Letter")')
+  assert.ok(fs.existsSync(path.join(book, 'manuscript/01-the-harbor/03-the-letter.notes.md')))
+  await menuClick('New Chapter…')
+  await win.fill('.modal input', 'The Island')
+  await win.keyboard.press('Enter')
+  await win.waitForSelector('.rail-chapter.current:has-text("The Island")')
+  await win.click('.rail-book-actions button:has-text("Close")')
+  await win.waitForSelector('.welcome-card button:has-text("New book")')
+
   assert.deepEqual(errors, [])
   await el.close()
   console.log(`e2e ok · screenshots in ${shots}`)

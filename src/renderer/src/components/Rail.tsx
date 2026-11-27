@@ -12,6 +12,9 @@ interface Props {
   onNewChapter: (title: string) => void
   onNewScene: (chapterId: string, title: string) => void
   onToggleChat: () => void
+  onNewBook: () => void
+  onOpenBook: () => void
+  onCloseBook: () => void
 }
 
 function Chevron({ open }: { open: boolean }): React.JSX.Element {
@@ -66,7 +69,7 @@ function NewItem({ label, indent, onCreate }: { label: string; indent?: boolean;
   )
 }
 
-export function Rail({ tree, route, spend, job, chatOpen, onOpen, onNewChapter, onNewScene, onToggleChat }: Props): React.JSX.Element {
+export function Rail({ tree, route, spend, job, chatOpen, onOpen, onNewChapter, onNewScene, onToggleChat, onNewBook, onOpenBook, onCloseBook }: Props): React.JSX.Element {
   const currentChapter =
     route?.kind === 'scene' ? tree.chapters.find((c) => c.scenes.some((s) => s.id === route.sceneId))?.id : route?.kind === 'chapter' ? route.chapterId : undefined
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
@@ -84,7 +87,17 @@ export function Rail({ tree, route, spend, job, chatOpen, onOpen, onNewChapter, 
     <nav className="rail" aria-label="Book">
       <div className="rail-book">
         <div className="rail-title">{tree.title}</div>
-        <div className="mono muted">novel in progress</div>
+        <div className="rail-book-actions">
+          <button className="linkish small" onClick={onNewBook} title="Create a new book (File menu, Ctrl+Shift+N)">
+            New book
+          </button>
+          <button className="linkish small" onClick={onOpenBook} title="Open another book folder (Ctrl+O)">
+            Open…
+          </button>
+          <button className="linkish small" onClick={onCloseBook} title="Close this book and go back to the start screen">
+            Close
+          </button>
+        </div>
       </div>
 
       <div className="rail-group">

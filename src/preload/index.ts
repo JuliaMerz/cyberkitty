@@ -21,6 +21,7 @@ const api: CkApi = {
   openSampleBook: () => inv('book:open-sample'),
   importMarkdownDialog: (chapterId) => inv('book:import', chapterId),
   openBook: (p) => inv('book:open', p),
+  closeBook: () => inv('book:close'),
   getBook: () => inv('book:get'),
   createChapter: (title) => inv('book:create-chapter', title),
   createScene: (chapterId, title) => inv('book:create-scene', chapterId, title),
@@ -78,7 +79,9 @@ const api: CkApi = {
   onChat: (cb) => listen('chat', cb),
   onDataChanged: (cb) => listen('data-changed', cb),
   onJob: (cb) => listen('job', cb),
-  onNavigate: (cb) => listen('navigate', cb)
+  onNavigate: (cb) => listen('navigate', cb),
+  onBookOpened: (cb) => listen('book-opened', cb),
+  onMenu: (cb) => listen('menu', cb)
 }
 
 contextBridge.exposeInMainWorld('ck', api)
