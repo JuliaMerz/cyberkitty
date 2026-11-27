@@ -11,7 +11,7 @@ import { CYBERKITTY_BRIEFING } from '@shared/briefing'
 import { linkFor } from '@shared/links'
 import type { BibleType, ChatEntry, DocRef, PageName, PassageRef, Place, SceneFile } from '@shared/types'
 import { agentTurn, describeError, isAbort, isBadRequest, type SystemBlocks } from './gateway'
-import { pendingChat } from './context'
+import { pendingChat, reviewStateText } from './context'
 import { closeBatch, eventsSince, lastSeq, logEvent, renderBatches } from './eventlog'
 import { bookContextFor, COLD_MS } from './snapshot'
 import { loadSettings } from './settings'
@@ -29,7 +29,7 @@ const PAGES: PageName[] = ['book.md', 'summary.md', 'theme.md', 'tropes.md', 'ch
 export const PLANNER_INSTRUCTIONS = `You are the planner, in the chat.
 
 What you have:
-- Below is a snapshot of the whole book: the style page, direction pages, the bible, the outline, chapter intents, scene summaries, notes and prose with their ids, open alerts, and the conversation so far. It was frozen a while ago so it can stay cached. After it comes the history since: everything that happened, oldest first, including the author's edits, each giving the changed paragraphs as they now read and what they replaced. The author keeps working while you talk, so each of their messages starts with what happened since your last reply (your own tool actions are left out; you know those). The newest version of a paragraph is the one that counts, and read_doc gives you any document's current text.
+- Below is a snapshot of the whole book: the style page, direction pages, the bible, the outline, chapter intents, scene summaries, notes and prose with their ids, each document's review state, open alerts, the conversation so far and the latest actions. It was frozen a while ago so it can stay cached. After it comes the history since: everything that happened, oldest first, including the author's edits, each giving the changed paragraphs as they now read and what they replaced. The author keeps working while you talk, so each of their messages starts with what happened since your last reply (your own replies, tool actions and suggestions are left out; you know those, and you hear what the author did with your suggestions). The newest version of a paragraph is the one that counts, and read_doc gives you any document's current text.
 - Each message carries the author's place (page, paragraph under the cursor, selection) and any passages they attached.
 - Your tools act on the page as described in the guide above. Quote text exactly as it appears when a tool needs a quote; tool results hand back ck: links to what you made, which you can put in your reply.
 
@@ -76,7 +76,7 @@ function toRef(d: z.infer<typeof zDoc>): DocRef {
 export const TOOLS: BetaToolUnion[] = [
   {
     name: 'read_doc',
-    description: 'Read the current text of a document. Use it before quoting anything that may have changed since the snapshot.',
+    description: 'Read the current text of a document, followed by its review state when it has any (Claude’s words not reviewed yet, suggestions waiting for the author). Use it before quoting anything that may have changed since the snapshot.',
     input_schema: { type: 'object', properties: { doc: docSchema }, required: ['doc'] }
   },
   {
@@ -168,8 +168,10 @@ async function runTool(name: string, raw: unknown, chatId: string, signal: Abort
   switch (name) {
     case 'read_doc': {
       const ref = toRef(zDoc.parse(input.doc))
-      const text = (await requireBook().readDoc(ref)).text
-      return { text: text ?? '(this document does not exist yet)' }
+      const doc = await requireBook().readDoc(ref)
+      if (doc.text === null) return { text: '(this document does not exist yet)' }
+      const review = reviewStateText(doc.marks)
+      return { text: review ? `${doc.text}\n\n${review}` : doc.text }
     }
     case 'suggest_edit':
     case 'suggest_insert': {
@@ -378,7 +380,7 @@ async function turn(text: string, place: Place, passages: PassageRef[]): Promise
     const history = await historySince(s)
     // Into the log, so the writer and later sessions see it; the planner has it as this event.
     const quoted = passages.length ? `\nAttached: ${passages.map((p) => `“${p.quote}”`).join(' ')}` : ''
-    logEvent('author', `The author wrote in the chat (on ${place.label}): ${text}${quoted}`)
+    logEvent('author', `The author wrote in the chat (on ${place.label}): ${text}${quoted}`, { kind: 'chat' })
     s.seenSeq = lastSeq()
     pendingChat.delete(authorEntry.id)
     const stopped = s.stopped
@@ -443,7 +445,7 @@ async function turn(text: string, place: Place, passages: PassageRef[]): Promise
         try {
           const out = await runTool(u.name, u.input, replyId, ctrl.signal)
           results.push({ type: 'tool_result', tool_use_id: u.id, content: out.text })
-          if (out.activity) logEvent('planner', `The planner: ${out.activity}`, 'planner')
+          if (out.activity) logEvent('planner', `The planner: ${out.activity}`, { via: 'planner' })
           if (out.activity) await pushEntries((e) => [...e.filter((x) => x.id !== replyId), { id: newId('a'), role: 'activity', text: out.activity!, at: new Date().toISOString() }, ...e.filter((x) => x.id === replyId)])
         } catch (err) {
           if (isAbort(err)) throw err
@@ -453,7 +455,7 @@ async function turn(text: string, place: Place, passages: PassageRef[]): Promise
       s.messages.push({ role: 'user', content: results })
     }
     await flush(false)
-    if (reply.trim()) logEvent('planner', `The planner replied: ${reply.trim()}`)
+    if (reply.trim()) logEvent('planner', `The planner replied: ${reply.trim()}`, { kind: 'reply' })
   } catch (err) {
     // Keep the session (and its cache) through a stop or a passing error: the
     // conversation is repaired so it stays valid, and the planner hears what
@@ -470,6 +472,8 @@ async function turn(text: string, place: Place, passages: PassageRef[]): Promise
     } else {
       if (s && !isBadRequest(err)) repair(s)
       else session = null
+      // Into the log too, so the next turn (and the writer) know the reply never finished.
+      logEvent('app', `The planner's reply failed${reply.trim() ? ` after: ${reply.trim()}` : ''}. The author saw: ${describeError(err)}`, { kind: 'error' })
       reply = reply ? `${reply}\n\n${describeError(err)}` : describeError(err)
       await flush(false, true)
     }

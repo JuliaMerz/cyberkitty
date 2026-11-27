@@ -24,16 +24,25 @@ function serial<T>(name: string, fn: () => Promise<T>): Promise<T> {
 }
 
 function store<T>(file: string, fallback: () => T, kind?: DataKind) {
+  const listeners = new Set<(before: T, after: T) => void>()
   return {
     read: (): Promise<T> => requireBook().readJson<T>(file, fallback()),
     update: (fn: (cur: T) => T | Promise<T>): Promise<T> =>
       serial(file, async () => {
         const b = requireBook()
-        const next = await fn(await b.readJson<T>(file, fallback()))
+        const cur = await b.readJson<T>(file, fallback())
+        const before = listeners.size ? structuredClone(cur) : cur
+        const next = await fn(cur)
         await b.writeJson(file, next)
         if (kind) changed(kind)
+        for (const l of listeners) l(before, next)
         return next
-      })
+      }),
+    /** Hear about every write, with what the store held before it. Every write goes through `update`. */
+    listen: (fn: (before: T, after: T) => void): (() => void) => {
+      listeners.add(fn)
+      return () => listeners.delete(fn)
+    }
   }
 }
 

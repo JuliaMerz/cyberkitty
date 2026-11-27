@@ -10,11 +10,12 @@ import { History } from './history'
 import { getApiKey, getSpend, loadSettings, saveSettings, setApiKey } from './settings'
 import { alternatives, ghostText, rewrite, runDraft } from './writer'
 import { canCall, describeError, setSpendListener } from './gateway'
-import { send, state } from './state'
+import { flushUi, send, state, uiFlushed } from './state'
 import { alertStore, bibleStore, changeStore, chatStore, diagramStore, logCorrection, summaryStore } from './stores'
 import { resetPlanner, sendChat, stopChat } from './planner'
 import { resetSnapshots } from './snapshot'
-import { logAction, logChanges, logEvent, noteMarks, resetLog } from './eventlog'
+import { logAction, logChanges, logEvent, resetLog } from './eventlog'
+import { draftJobs, HANDLED, SENT, sceneTitle } from './actions'
 import { deleteEntry, saveEntry } from './bible'
 import { addTodo, refreshAlerts, setAlertStatus } from './alerts'
 import { settle } from './settling'
@@ -55,20 +56,10 @@ function refreshTree(): void {
 }
 state.onDirty = refreshTree
 
-const HUMANIZE_NAMES: Record<string, string> = { plainer: 'plainer', shorter: 'shorter', rougher: 'rougher', concrete: 'more concrete', sample: 'closer-to-my-samples' }
-
-async function sceneTitle(sceneId: string): Promise<string> {
-  return (await requireBook().scenes()).find((s) => s.id === sceneId)?.title ?? sceneId
-}
-
-async function refLabelFor(ref: DocRef): Promise<string> {
-  if (ref.kind === 'page') return `the ${ref.name} page`
-  if (ref.kind === 'chapter') return `the intent of ${ref.chapterId}`
-  return `the ${ref.file} of “${await sceneTitle(ref.sceneId)}” (${ref.sceneId})`
-}
-
 async function openBook(dir: string): Promise<BookTree | null> {
   if (!(await Book.isBook(dir))) return null
+  // Typing still held back in the UI belongs to the book that is open now.
+  await flushUi()
   await watcher?.close()
   resetPlanner()
   resetSnapshots()
@@ -262,21 +253,64 @@ function buildMenu(): void {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
 }
 
+/**
+ * Register a channel the UI invokes. Every one goes through the action table
+ * (actions.ts): save the UI's held-back typing, log the edits before the
+ * action and then the action, run it, and log what it changed or that it
+ * failed. A channel missing from the table does not start.
+ */
+function handle<A extends unknown[]>(channel: string, fn: (...args: A) => unknown): void {
+  const entry = HANDLED[channel]
+  if (!entry) throw new Error(`${channel} is not in the action table (src/main/actions.ts)`)
+  ipcMain.handle(channel, async (_e, ...args: unknown[]) => {
+    if (entry.flush) await flushUi()
+    const text = entry.log && state.book ? await (entry.log as (...a: unknown[]) => string | null | Promise<string | null>)(...args) : null
+    if (text) await logAction('author', text)
+    try {
+      const result = await fn(...(args as A))
+      if (text && result && typeof result === 'object' && 'ok' in result && result.ok === false) {
+        logEvent('app', `That request failed: ${(result as { error?: string }).error ?? 'no reason given'}`, { kind: 'error' })
+      }
+      return result
+    } catch (err) {
+      if (text) logEvent('app', `That request failed: ${describeError(err)}`, { kind: 'error' })
+      throw err
+    } finally {
+      // What the action changed follows it in the log.
+      if (text) void logChanges()
+    }
+  })
+}
+
+/** Register a channel the UI sends to without waiting, through the same table. */
+function on<A extends unknown[]>(channel: string, fn: (...args: A) => void): void {
+  const entry = SENT[channel]
+  if (!entry) throw new Error(`${channel} is not in the action table (src/main/actions.ts)`)
+  ipcMain.on(channel, (_e, ...args: unknown[]) => {
+    if (entry.log && state.book) {
+      const text = (entry.log as (...a: unknown[]) => string | null)(...args)
+      if (text) void logAction('author', text)
+    }
+    fn(...(args as A))
+  })
+}
+
 function registerIpc(): void {
-  ipcMain.handle('settings:get', () => loadSettings())
-  ipcMain.handle('settings:set', async (_e, patch: Partial<Settings>) => {
+  handle('settings:get', () => loadSettings())
+  handle('settings:set', async (patch: Partial<Settings>) => {
     const next = await saveSettings(patch)
     if (patch.blockingHelp || patch.lanes) resetPlanner()
     return next
   })
-  ipcMain.handle('key:has', async () => Boolean(await getApiKey()))
-  ipcMain.handle('key:set', (_e, key: string) => setApiKey(key))
-  ipcMain.handle('spend:get', () => getSpend())
+  handle('key:has', async () => Boolean(await getApiKey()))
+  handle('key:set', (key: string) => setApiKey(key))
+  handle('spend:get', () => getSpend())
 
-  ipcMain.handle('book:open-dialog', () => openBookDialog())
-  ipcMain.handle('book:create-dialog', () => createBookDialog())
-  ipcMain.handle('book:open-sample', () => openSample())
-  ipcMain.handle('book:close', async () => {
+  handle('book:open-dialog', () => openBookDialog())
+  handle('book:create-dialog', () => createBookDialog())
+  handle('book:open-sample', () => openSample())
+  handle('book:close', async () => {
+    await logChanges()
     await state.history?.snapshot('Closed the book')
     await watcher?.close()
     watcher = null
@@ -288,20 +322,20 @@ function registerIpc(): void {
     state.openDocs.clear()
     await saveSettings({ lastBook: null })
   })
-  ipcMain.handle('book:import', (_e, chapterId: string) => importMarkdown(chapterId))
-  ipcMain.handle('book:open', (_e, dir: string) => openBook(dir))
-  ipcMain.handle('book:get', async () => (state.book ? treeWithCounts(state.book) : null))
-  ipcMain.handle('book:create-chapter', async (_e, title: string) => {
+  handle('book:import', (chapterId: string) => importMarkdown(chapterId))
+  handle('book:open', (dir: string) => openBook(dir))
+  handle('book:get', async () => (state.book ? treeWithCounts(state.book) : null))
+  handle('book:create-chapter', async (title: string) => {
     const b = requireBook()
     await b.createChapter(title)
     return treeWithCounts(b)
   })
-  ipcMain.handle('book:create-scene', async (_e, chapterId: string, title: string) => {
+  handle('book:create-scene', async (chapterId: string, title: string) => {
     const b = requireBook()
     const sceneId = await b.createScene(chapterId, title)
     return { tree: await treeWithCounts(b), sceneId }
   })
-  ipcMain.handle('book:rename-scene', async (_e, sceneId: string, title: string) => {
+  handle('book:rename-scene', async (sceneId: string, title: string) => {
     const b = requireBook()
     await b.renameScene(sceneId, title)
     for (const file of ['prose', 'notes'] as const) {
@@ -315,117 +349,100 @@ function registerIpc(): void {
     return treeWithCounts(b)
   })
 
-  ipcMain.handle('doc:read', async (_e, ref: DocRef) => {
+  handle('doc:read', async (ref: DocRef) => {
     const b = requireBook()
     const doc = await b.readDoc(ref)
     if (doc.text !== null) state.lastWritten.set(b.docPath(ref), doc.text)
     return doc
   })
-  ipcMain.handle('doc:write', async (_e, ref: DocRef, text: string) => {
+  handle('doc:write', async (ref: DocRef, text: string) => {
     const b = requireBook()
     state.lastWritten.set(b.docPath(ref), text)
     await b.writeDoc(ref, text)
     scheduleSettle()
   })
-  ipcMain.handle('doc:write-marks', async (_e, ref: DocRef, marks: MarkRecord[]) => {
-    noteMarks(ref, marks)
+  handle('doc:write-marks', async (ref: DocRef, marks: MarkRecord[]) => {
     await requireBook().writeDocMarks(ref, marks)
     refreshTree()
   })
-  ipcMain.on('doc:open-docs', (_e, keys: string[]) => {
+  on('doc:open-docs', (keys: string[]) => {
     state.openDocs = new Set(keys)
   })
-  ipcMain.on('activity', (_e, place: Place) => noteActivity(place))
-  ipcMain.on('correction', (_e, c: Correction) => {
+  on('activity', (place: Place) => noteActivity(place))
+  on('correction', (c: Correction) => {
     if (state.book) void logCorrection(c)
   })
 
-  ipcMain.handle('draft:start', async (_e, req: DraftRequest) => {
+  handle('draft:start', async (req: DraftRequest) => {
     const jobId = `draft-${Date.now().toString(36)}`
     const ctrl = new AbortController()
     drafts.set(jobId, ctrl)
     const lane = (await loadSettings()).lanes.writer
-    const title = await sceneTitle(req.sceneId)
+    const scene = `“${await sceneTitle(req.sceneId)}” (${req.sceneId})`
+    draftJobs.set(jobId, scene)
     void (async () => {
-      await logAction('author', `The author pressed Draft it in “${title}” (${req.sceneId})${req.beats?.trim() ? `, for these beats:\n${req.beats.trim()}` : req.proseAfter.trim() ? ', at a gap in the prose' : ''}`)
       await state.history?.snapshot('Before Claude drafted')
       const result = await runDraft(req, lane, ctrl.signal, (delta) => send('draft-delta', jobId, delta))
       drafts.delete(jobId)
+      draftJobs.delete(jobId)
+      // A stop is logged by draft:cancel; anything else that ends a draft early is a failure.
+      if (!result.ok && !ctrl.signal.aborted) logEvent('app', `The draft in ${scene} failed: ${result.error ?? 'no reason given'}. What was written so far stays in the prose.`, { kind: 'error' })
       const { text: _text, ...rest } = result
       send('draft-done', jobId, rest)
     })()
     return jobId
   })
-  ipcMain.on('draft:cancel', (_e, jobId: string) => drafts.get(jobId)?.abort())
-  ipcMain.handle('tool:alternatives', async (_e, req: AlternativesRequest) => {
-    await logAction('author', `The author asked for other ways to say “${req.sentence.trim()}” in “${await sceneTitle(req.sceneId)}” (${req.sceneId})`)
-    return tool(() => alternatives(req))
-  })
-  ipcMain.handle('tool:rewrite', async (_e, req: RewriteRequest) => {
-    const what = req.tool ? `a ${HUMANIZE_NAMES[req.tool]} version` : 'a rewrite'
-    await logAction('author', `The author asked the writer for ${what} of a passage in ${await refLabelFor(req.ref)}: “${req.quote.trim()}”${req.instruction ? `\nTheir instruction: ${req.instruction}` : ''}`)
-    return tool(() => rewrite(req))
-  })
-  ipcMain.handle('tool:ghost', (_e, req: { sceneId: string; before: string }) => tool(() => ghostText(req.sceneId, req.before)))
+  on('draft:cancel', (jobId: string) => drafts.get(jobId)?.abort())
+  handle('tool:alternatives', (req: AlternativesRequest) => tool(() => alternatives(req)))
+  handle('tool:rewrite', (req: RewriteRequest) => tool(() => rewrite(req)))
+  handle('tool:ghost', (req: { sceneId: string; before: string }) => tool(() => ghostText(req.sceneId, req.before)))
 
-  ipcMain.handle('chat:get', async () => (state.book ? chatStore.read() : []))
-  ipcMain.handle('chat:send', (_e, text: string, place: Place, passages: PassageRef[]) => sendChat(text, place, passages))
-  ipcMain.on('chat:stop', () => stopChat())
+  handle('chat:get', async () => (state.book ? chatStore.read() : []))
+  handle('chat:send', (text: string, place: Place, passages: PassageRef[]) => sendChat(text, place, passages))
+  on('chat:stop', () => stopChat())
+  on('editors-flushed', (id: number) => uiFlushed(id))
 
-  ipcMain.handle('bible:get', async () => (state.book ? bibleStore.read() : []))
-  ipcMain.handle('bible:save', (_e, entry: BibleEntry) => saveEntry(entry))
-  ipcMain.handle('bible:delete', (_e, id: string) => deleteEntry(id))
-  ipcMain.handle('summaries:get', async () => (state.book ? summaryStore.read() : {}))
-  ipcMain.handle('summaries:seen', async (_e, sceneId: string) => {
+  handle('bible:get', async () => (state.book ? bibleStore.read() : []))
+  handle('bible:save', (entry: BibleEntry) => saveEntry(entry))
+  handle('bible:delete', (id: string) => deleteEntry(id))
+  handle('summaries:get', async () => (state.book ? summaryStore.read() : {}))
+  handle('summaries:seen', async (sceneId: string) => {
     await summaryStore.update((all) => (all[sceneId]?.changed.length ? { ...all, [sceneId]: { ...all[sceneId], changed: [] } } : all))
   })
-  ipcMain.handle('settle:now', async () => {
+  handle('settle:now', async () => {
     await state.history?.snapshot('Work settled')
     await settle()
   })
-  ipcMain.handle('diagrams:get', async () => (state.book ? diagramStore.read() : []))
-  ipcMain.handle('diagrams:draw', (_e, request: string) => tool(() => drawDiagram(request)))
-  ipcMain.handle('diagrams:delete', async (_e, id: string) => {
+  handle('diagrams:get', async () => (state.book ? diagramStore.read() : []))
+  handle('diagrams:draw', (request: string) => tool(() => drawDiagram(request)))
+  handle('diagrams:delete', async (id: string) => {
     await diagramStore.update((all) => all.filter((d) => d.id !== id))
   })
 
-  ipcMain.handle('alerts:get', async () => (state.book ? alertStore.read() : []))
-  ipcMain.handle('alerts:status', async (_e, id: string, status: 'open' | 'dismissed' | 'done') => {
+  handle('alerts:get', async () => (state.book ? alertStore.read() : []))
+  handle('alerts:status', async (id: string, status: 'open' | 'dismissed' | 'done') => {
     await setAlertStatus(id, status)
     refreshTree()
   })
-  ipcMain.handle('alerts:todo', async (_e, text: string, sceneId?: string) => {
+  handle('alerts:todo', async (text: string, sceneId?: string) => {
     await addTodo(text, sceneId)
     refreshTree()
   })
-  ipcMain.handle('alerts:scan', () => scan({ force: true }))
+  handle('alerts:scan', () => scan({ force: true }))
 
-  ipcMain.handle('changes:get', async () => (state.book ? changeStore.read() : []))
-  ipcMain.handle('changes:propose', (_e, chapterId: string, request: string) => tool(() => proposeChange(chapterId, request)))
-  ipcMain.handle('changes:save', (_e, change: ChangeSpec) => saveChange(change))
-  ipcMain.handle('changes:run', (_e, id: string) => runChange(id))
-  ipcMain.handle('changes:merge', async (_e, id: string, decisions: HunkDecision[]) => {
-    await logChanges()
-    await mergeChange(id, decisions)
-    // What the action changed is logged after it, as edits.
-    logEvent('author', `The author merged the chapter change “${(await changeStore.read()).find((c) => c.id === id)?.title ?? id}” into the book (${decisions.length} scene${decisions.length === 1 ? '' : 's'}).`)
-  })
-  ipcMain.handle('changes:undo', async (_e, id: string) => {
-    await logChanges()
-    await undoChange(id)
-    // What the action changed is logged after it, as edits.
-    logEvent('author', `The author undid the chapter change “${(await changeStore.read()).find((c) => c.id === id)?.title ?? id}”.`)
-  })
+  handle('changes:get', async () => (state.book ? changeStore.read() : []))
+  handle('changes:propose', (chapterId: string, request: string) => tool(() => proposeChange(chapterId, request)))
+  handle('changes:save', (change: ChangeSpec) => saveChange(change))
+  handle('changes:run', (id: string) => runChange(id))
+  handle('changes:merge', (id: string, decisions: HunkDecision[]) => mergeChange(id, decisions))
+  handle('changes:undo', (id: string) => undoChange(id))
 
-  ipcMain.handle('history:get', async () => (state.history ? state.history.log(100) : []))
-  ipcMain.handle('history:restore', async (_e, oid: string) => {
+  handle('history:get', async () => (state.history ? state.history.log(100) : []))
+  handle('history:restore', async (oid: string) => {
     const b = requireBook()
     const h = state.history
     if (!h) return
-    await logChanges()
     const touched = await h.restore(oid)
-    // What the action changed is logged after it, as edits.
-    logEvent('author', `The author restored the book to an earlier snapshot (${touched.length} file${touched.length === 1 ? '' : 's'} changed back).`)
     for (const rel of touched) {
       const abs = b.abs(rel)
       const ref = b.refForPath(abs)
@@ -465,6 +482,21 @@ async function createWindow(): Promise<void> {
     return { action: 'deny' }
   })
   win.webContents.on('will-navigate', (e) => e.preventDefault())
+  // Closing waits for the UI to save the typing it is still holding back, so
+  // the last words before a quit are never lost; then the book is snapshotted.
+  let saved = false
+  win.on('close', (e) => {
+    if (saved) return
+    e.preventDefault()
+    saved = true
+    void flushUi()
+      .then(() => state.history?.snapshot('Closed the book'))
+      .catch(() => undefined)
+      .finally(() => {
+        if (!win.isDestroyed()) win.close()
+        if (quitting) app.quit()
+      })
+  })
 
   if (process.env.ELECTRON_RENDERER_URL) await win.loadURL(process.env.ELECTRON_RENDERER_URL)
   else await win.loadFile(path.join(here, '../renderer/index.html'))
@@ -483,8 +515,9 @@ app.whenReady().then(async () => {
   })
 })
 
+let quitting = false
 app.on('before-quit', () => {
-  void state.history?.snapshot('Closed the book')
+  quitting = true
 })
 
 app.on('window-all-closed', () => {

@@ -27,12 +27,12 @@ export function useApp(): AppApi {
 
 // ---- Open editors -------------------------------------------------------------
 
-const editors = new Map<string, { view: EditorView; ref: DocRef }>()
+const editors = new Map<string, { view: EditorView; ref: DocRef; flush: () => Promise<void> }>()
 const listeners = new Set<() => void>()
 
-export function registerEditor(ref: DocRef, view: EditorView): () => void {
+export function registerEditor(ref: DocRef, view: EditorView, flush: () => Promise<void>): () => void {
   const key = docKey(ref)
-  editors.set(key, { view, ref })
+  editors.set(key, { view, ref, flush })
   publish()
   return () => {
     if (editors.get(key)?.view === view) editors.delete(key)
@@ -44,6 +44,17 @@ function publish(): void {
   window.ck.setOpenDocs([...editors.keys()])
   for (const l of listeners) l()
 }
+
+/** Save every editor's held-back typing and marks now. */
+export async function flushEditors(): Promise<void> {
+  await Promise.all([...editors.values()].map((e) => e.flush().catch(() => undefined)))
+}
+
+// The main process asks before anything that reads the book: a Claude call,
+// closing or switching the book, quitting.
+window.ck.onFlushEditors((id) => {
+  void flushEditors().finally(() => window.ck.editorsFlushed(id))
+})
 
 export function onEditorsChanged(fn: () => void): () => void {
   listeners.add(fn)

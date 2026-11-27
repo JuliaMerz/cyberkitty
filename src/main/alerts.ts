@@ -120,7 +120,7 @@ export async function setAlertStatus(id: string, status: Alert['status']): Promi
   await alertStore.update((all) =>
     all.map((a) => {
       if (a.id !== id) return a
-      target = { ...a, status }
+      target = { ...a, status, statusBy: 'author' }
       return target
     })
   )
@@ -148,7 +148,7 @@ export async function refreshAlerts(): Promise<void> {
   }
   if (!stale.length) return
   const ids = new Set(stale.map((a) => a.id))
-  await alertStore.update((cur) => cur.map((a) => (ids.has(a.id) ? { ...a, status: 'done' } : a)))
+  await alertStore.update((cur) => cur.map((a) => (ids.has(a.id) ? { ...a, status: 'done', statusBy: 'app' } : a)))
   for (const a of stale) await clearMarks(a)
   send('book-dirty')
 }

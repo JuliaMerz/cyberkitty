@@ -118,9 +118,16 @@ export function ScenePage({ sceneId, title, chapter, view, onViewChange, reveal 
     if (after.trim() && !after.startsWith('\n\n')) v.dispatch({ changes: { from: at, insert: '\n\n' }, annotations: machineEdit.of('claude') })
 
     setNotice(null)
-    const jobId = await ck.draft({ sceneId, beats, proseBefore: v.state.doc.sliceString(0, at), proseAfter: v.state.doc.sliceString(at) })
-    draftState.current = { jobId, start: at, pos: at }
-    setDrafting(jobId)
+    // Show the draft as started right away; the job id follows once the app has saved and logged what came before.
+    setDrafting('starting')
+    try {
+      const jobId = await ck.draft({ sceneId, beats, proseBefore: v.state.doc.sliceString(0, at), proseAfter: v.state.doc.sliceString(at) })
+      draftState.current = { jobId, start: at, pos: at }
+      setDrafting(jobId)
+    } catch (err) {
+      setDrafting(null)
+      setNotice({ tone: 'error', text: err instanceof Error ? err.message : String(err) })
+    }
   }
 
   const toReview = counts.unreviewed + counts.updated

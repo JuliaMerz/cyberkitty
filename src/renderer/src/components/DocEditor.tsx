@@ -82,14 +82,12 @@ export function DocEditor(props: Props): React.JSX.Element {
     const pendingCorrections: Array<{ before: string; pos: number }> = []
     const prose = kind === 'prose'
 
-    const save = (): void => {
-      if (!view) return
+    const save = (): Promise<void> => {
+      if (!view) return Promise.resolve()
       exists = true
-      void ck.writeDoc(docRef, view.state.doc.toString())
+      return ck.writeDoc(docRef, view.state.doc.toString())
     }
-    const saveMarks = (): void => {
-      if (view) void ck.writeDocMarks(docRef, exportMarks(view.state))
-    }
+    const saveMarks = (): Promise<void> => (view ? ck.writeDocMarks(docRef, exportMarks(view.state)) : Promise.resolve())
     const schedule = (k: string, fn: () => void, ms: number): void => {
       clearTimeout(timers[k])
       timers[k] = setTimeout(() => {
@@ -97,13 +95,17 @@ export function DocEditor(props: Props): React.JSX.Element {
         fn()
       }, ms)
     }
-    const flush = (): void => {
+    /** Save whatever is waiting on a timer now; resolves once it is on disk. */
+    const flush = (): Promise<void> => {
+      const writes: Promise<void>[] = []
       for (const [k, t] of Object.entries(timers)) {
         clearTimeout(t)
-        if (k === 'text') save()
-        if (k === 'marks') saveMarks()
+        delete timers[k]
+        if (k === 'text') writes.push(save())
+        if (k === 'marks') writes.push(saveMarks())
         if (k === 'corrections') logCorrections()
       }
+      return Promise.all(writes).then(() => undefined)
     }
     const logCorrections = (): void => {
       if (!view) return
@@ -237,7 +239,7 @@ export function DocEditor(props: Props): React.JSX.Element {
         effects: [setMarks.of(healed.marks.map((record) => ({ record, range: healed.ranges.get(record.id)! }))), setBan.of(appRef.current.ban)],
         annotations: machineEdit.of('external')
       })
-      unregister = registerEditor(docRef, view)
+      unregister = registerEditor(docRef, view, flush)
       propsRef.current.onView?.(view)
       setLoaded(true)
     })
@@ -267,7 +269,7 @@ export function DocEditor(props: Props): React.JSX.Element {
       offFile()
       offAdded()
       offRemoved()
-      flush()
+      void flush()
       unregister()
       propsRef.current.onView?.(null)
       viewRef.current = null

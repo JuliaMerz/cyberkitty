@@ -81,7 +81,9 @@ const api: CkApi = {
   onJob: (cb) => listen('job', cb),
   onNavigate: (cb) => listen('navigate', cb),
   onBookOpened: (cb) => listen('book-opened', cb),
-  onMenu: (cb) => listen('menu', cb)
+  onMenu: (cb) => listen('menu', cb),
+  onFlushEditors: (cb) => listen('flush-editors', cb),
+  editorsFlushed: (id) => ipcRenderer.send('editors-flushed', id)
 }
 
 contextBridge.exposeInMainWorld('ck', api)

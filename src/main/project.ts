@@ -23,6 +23,9 @@ export const META = '.cyberkitty'
 
 const NOTES_EXT = '.notes.md'
 
+/** Called after any document's marks are written. */
+export const markListeners = new Set<(book: Book, ref: DocRef, marks: MarkRecord[]) => void>()
+
 export function emptySidecar(): Sidecar {
   return { version: 1, marks: [] }
 }
@@ -201,7 +204,12 @@ export class Book {
     }
   }
 
-  /** Replace the marks of one document; a scene's other file keeps its marks. */
+  /**
+   * Replace the marks of one document; a scene's other file keeps its marks.
+   * Every mark write in the app comes through here, from the editor or from
+   * the main process, so listeners (the event log) see each mark once it is
+   * on disk.
+   */
   async writeDocMarks(ref: DocRef, marks: MarkRecord[]): Promise<void> {
     const file: SceneFile = ref.kind === 'scene' ? ref.file : 'prose'
     const cur = await this.readSidecar(ref)
@@ -209,6 +217,7 @@ export class Book {
     const p = this.sidecarPath(ref)
     await fs.mkdir(path.dirname(p), { recursive: true })
     await atomicWrite(p, JSON.stringify(next, null, 2) + '\n')
+    for (const l of markListeners) l(this, ref, marks)
   }
 
   async addDocMarks(ref: DocRef, marks: MarkRecord[]): Promise<void> {

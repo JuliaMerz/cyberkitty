@@ -3,7 +3,7 @@
 // Claude can link to it. Whole-book snapshots for cached prompts live in
 // snapshot.ts.
 
-import { DIRECTION_PAGES, type BibleEntry } from '@shared/types'
+import { DIRECTION_PAGES, type BibleEntry, type MarkRecord } from '@shared/types'
 import { requireBook } from './state'
 import { alertStore, bibleStore, chatStore, summaryStore } from './stores'
 import { stripHeading } from './project'
@@ -83,7 +83,7 @@ export async function chatText(budget = 120_000): Promise<string> {
   for (let i = entries.length - 1; i >= 0; i--) {
     const e = entries[i]
     if (!e.text.trim()) continue
-    const who = e.role === 'author' ? `Author${e.place ? ` (on ${e.place.label})` : ''}` : e.role === 'claude' ? 'Planner' : 'Planner action'
+    const who = e.role === 'author' ? `Author${e.place ? ` (on ${e.place.label})` : ''}` : e.role === 'claude' ? (e.error ? 'Planner (this reply failed; the author saw the error below)' : 'Planner') : 'Planner action'
     const quotes = e.passages?.length ? ` [attached: ${e.passages.map((p) => `“${p.quote}”`).join(' ')}]` : ''
     const line = `${who}: ${e.text.trim()}${quotes}`
     if (used + line.length > budget) break
@@ -91,4 +91,34 @@ export async function chatText(budget = 120_000): Promise<string> {
     lines.unshift(line)
   }
   return lines.length ? `<chat>\n${lines.join('\n')}\n</chat>` : '<chat>(no conversation yet)</chat>'
+}
+
+function short(s: string, max = 160): string {
+  const t = s.replace(/\s+/g, ' ').trim()
+  return t.length <= max ? t : `${t.slice(0, max).trimEnd()}…`
+}
+
+const MARK_SOURCE: Record<MarkRecord['origin']['source'], string> = {
+  chat: 'the planner',
+  rewrite: 'the writer',
+  draft: 'the writer',
+  change: 'a chapter change',
+  scan: 'a background check'
+}
+
+/**
+ * Claude's marks on a document as Claude reads them: which words are its own
+ * and not reviewed yet, and which suggestions are waiting for the author.
+ * Empty when there are none.
+ */
+export function reviewStateText(marks: MarkRecord[], where = ''): string {
+  const lines: string[] = []
+  for (const m of marks) {
+    const from = MARK_SOURCE[m.origin.source] ?? 'Claude'
+    if (m.kind === 'unreviewed') lines.push(`- Claude’s words${where}, not reviewed yet (from ${from}): “${short(m.anchor.quote)}”`)
+    else if (m.kind === 'updated') lines.push(`- Changed by Claude${where} since the author accepted it (from ${from}): “${short(m.anchor.quote)}”${m.acceptedText ? ` (the author had accepted: “${short(m.acceptedText)}”)` : ''}`)
+    else if (m.kind === 'suggested' && m.replacement !== undefined)
+      lines.push(`- Suggested${where} by ${from}, waiting for the author: “${short(m.replacement)}” ${m.insert === 'after' ? 'to go after' : 'in place of'} “${short(m.anchor.quote)}”`)
+  }
+  return lines.length ? `<review_state>\n${lines.join('\n')}\n</review_state>` : ''
 }

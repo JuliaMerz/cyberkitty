@@ -16,7 +16,8 @@ import type { DocRef, MarkRecord } from '@shared/types'
 import { Book } from '../src/main/project'
 import { state } from '../src/main/state'
 import { bibleStore } from '../src/main/stores'
-import { closeBatch, eventsSince, logChanges, logEvent, noteMarks, renderBatches, resetLog } from '../src/main/eventlog'
+import { closeBatch, eventsSince, logChanges, logEvent, logSaved, renderBatches, resetLog } from '../src/main/eventlog'
+import { addTodo, setAlertStatus } from '../src/main/alerts'
 import { bookContextFor, changesTooLarge, COLD_MS, resetSnapshots } from '../src/main/snapshot'
 
 const WRITER = { style: false, notes: true, history: true }
@@ -139,7 +140,7 @@ describe('event log', () => {
     book = await openSample()
   })
 
-  it('tells accepted suggestions from rejected ones', async () => {
+  it('tells accepted suggestions from rejected ones, even when both happen between two looks', async () => {
     await closeBatch()
     const scene = await firstScene(book)
     const text = `${scene.prose.trim()}\n\nThe ferry was late.\n\nThe gulls were loud.\n`
@@ -155,11 +156,10 @@ describe('event log', () => {
       origin: { source: 'rewrite', at: '2026-11-27T00:00:00Z' },
       replacement
     })
-    const marks = [mark('s1', late, late + 19, 'The ferry ran late.'), mark('s2', loud, loud + 20, 'The gulls screamed.')]
-    noteMarks(scene.ref, marks)
-    await book.writeDocMarks(scene.ref, marks)
     const since = eventsSince(0).length
-    // The author accepts the first and rejects the second.
+    const marks = [mark('s1', late, late + 19, 'The ferry ran late.'), mark('s2', loud, loud + 20, 'The gulls screamed.')]
+    await book.writeDocMarks(scene.ref, marks)
+    // The author accepts the first and rejects the second before the log looks again.
     await book.writeDoc(scene.ref, text.replace('The ferry was late.', 'The ferry ran late.'))
     await book.writeDocMarks(scene.ref, [])
     await logChanges()
@@ -168,6 +168,39 @@ describe('event log', () => {
     expect(log).toContain('“The ferry ran late.” in place of “The ferry was late.”')
     expect(log).toContain('did not take a suggestion')
     expect(log).toContain('“The gulls screamed.”')
+    // The suggestions were logged as they appeared, too.
+    expect(log).toContain('The writer suggested in the prose of')
+    expect(log.indexOf('The writer suggested')).toBeLessThan(log.indexOf('accepted a suggestion'))
+  })
+
+  it('logs a suggestion made on a document that is not open, and its rejection', async () => {
+    await closeBatch()
+    const ref = { kind: 'page' as const, name: 'outline.md' as const }
+    const text = 'Act one: Mara comes home.\n'
+    await book.writeDoc(ref, text)
+    await logChanges()
+    const since = eventsSince(0).length
+    await book.addDocMarks(ref, [
+      { id: 'p1', kind: 'suggested', file: 'prose', anchor: makeAnchor(text, 0, 25), origin: { source: 'chat', at: '2026-11-27T00:00:00Z' }, replacement: 'Act one: Mara comes home late.' }
+    ])
+    await book.writeDocMarks(ref, [])
+    await logChanges()
+    const fresh = eventsSince(0).slice(since)
+    expect(fresh.map((e) => e.text).join('\n')).toContain('The planner suggested in the outline.md page')
+    // The planner knows what it suggested; it hears only what the author did with it.
+    expect(eventsSince(0, 'planner').slice(-1)[0].text).toContain('The author did not take a suggestion in the outline.md page')
+  })
+
+  it('logs a todo added and ticked off between two looks, and who did it', async () => {
+    const since = eventsSince(0).length
+    await addTodo('Check the ferry times.')
+    const todo = eventsSince(0).at(-1)!
+    expect(todo.text).toContain('New todo')
+    const id = /todo (\S+):/.exec(todo.text)![1]
+    await setAlertStatus(id, 'done')
+    const fresh = eventsSince(0).slice(since).map((e) => e.text)
+    expect(fresh).toHaveLength(2)
+    expect(fresh[1]).toContain(`Todo ${id} marked done by the author`)
   })
 
   it('renders one block per batch, in order', () => {
@@ -179,9 +212,58 @@ describe('event log', () => {
 
   it('leaves the planner’s own doings out of its view', async () => {
     logEvent('planner', 'The planner replied: hello')
-    logEvent('planner', 'The planner: suggested an edit', 'planner')
+    logEvent('planner', 'The planner: suggested an edit', { via: 'planner' })
     logEvent('author', 'The author wrote in the chat: hi')
     expect(eventsSince(0, 'planner').map((e) => e.text)).toEqual([expect.stringContaining('The author wrote in the chat: hi')])
+  })
+})
+
+describe('what a snapshot keeps besides the text', () => {
+  let book: Book
+  beforeEach(async () => {
+    book = await openSample()
+  })
+
+  it('shows Claude’s unreviewed words and suggestions still waiting', async () => {
+    const scene = await firstScene(book)
+    const text = `${scene.prose.trim()}\n\nThe ferry was late.\n`
+    await book.writeDoc(scene.ref, text)
+    const at = text.indexOf('The ferry was late.')
+    await book.writeDocMarks(scene.ref, [
+      { id: 'u1', kind: 'unreviewed', file: 'prose', anchor: makeAnchor(text, at, at + 19), origin: { source: 'draft', at: '2026-11-27T00:00:00Z' } },
+      { id: 's1', kind: 'suggested', file: 'prose', anchor: makeAnchor(text, at, at + 19), origin: { source: 'rewrite', at: '2026-11-27T00:00:00Z' }, replacement: 'The ferry ran late.' }
+    ])
+    const { snapshot } = await bookContextFor('writer', WRITER, 0)
+    expect(snapshot).toContain('<review_state>')
+    expect(snapshot).toContain('Claude’s words in the prose, not reviewed yet (from the writer): “The ferry was late.”')
+    expect(snapshot).toContain('waiting for the author: “The ferry ran late.” in place of “The ferry was late.”')
+  })
+
+  it('keeps recent actions across a restart and a retake', async () => {
+    await bookContextFor('writer', WRITER, 0)
+    logEvent('author', 'The author asked for a consistency scan of the whole book.')
+    logEvent('author', 'The author wrote in the chat (on Arrival): hello', { kind: 'chat' })
+    await logSaved()
+    // Reopen the book: the log in memory starts over, the file on disk stays.
+    state.book = new Book(book.root)
+    resetSnapshots()
+    resetLog()
+    const { snapshot, history } = await bookContextFor('writer', WRITER, 0)
+    expect(history).toEqual([])
+    expect(snapshot).toContain('<recent_actions>')
+    expect(snapshot).toContain('The author asked for a consistency scan of the whole book.')
+    // Chat is in the conversation, not repeated as an action.
+    expect(snapshot.slice(snapshot.indexOf('<recent_actions>'))).not.toContain('hello')
+  })
+
+  it('gives the scan the conversation and the chat since', async () => {
+    const scan = { style: false, notes: false, conversation: true }
+    const first = await bookContextFor('scan', scan, 0)
+    expect(first.snapshot).toContain('<conversation_so_far>')
+    logEvent('author', 'The author wrote in the chat (on Arrival): The timeline is told out of order on purpose.', { kind: 'chat' })
+    const next = await bookContextFor('scan', scan, MIN)
+    expect(next.snapshot).toBe(first.snapshot)
+    expect(next.changes).toContain('The timeline is told out of order on purpose.')
   })
 })
 

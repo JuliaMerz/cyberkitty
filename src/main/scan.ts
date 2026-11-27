@@ -24,7 +24,9 @@ Look for:
 - direction: scenes that no longer match a direction page (summary, theme, characters and arcs).
 - thread: lower priority. Threads set up and never paid off, only when the book looks far enough along for it to matter.
 
-Do not report style, pacing, or matters of taste. Do not report anything listed as dismissed.`
+Do not report style, pacing, or matters of taste. Do not report anything listed as dismissed.
+
+The snapshot ends with the conversation between the author and the planner, and the changes carry any chat since, so you can see what the author has said they intend (a deliberate contradiction, an unreliable narrator, a timeline told out of order).`
 
 const SIDE = {
   type: 'object',
@@ -89,7 +91,7 @@ export async function scan(opts: { force?: boolean } = {}): Promise<void> {
       : ''
     // Scans come ten minutes or more apart, so the book rides in a frozen
     // snapshot cached for an hour, and only what changed since is sent fresh.
-    const book = await bookContextFor('scan', { style: false, notes: false })
+    const book = await bookContextFor('scan', { style: false, notes: false, conversation: true })
     const res = await structured<{ findings: Array<{ kind: 'continuity' | 'timeline' | 'direction' | 'thread'; title: string; explanation: string; fix: string; side_a: Side; side_b: Side }> }>({
       lane: (await loadSettings()).lanes.background,
       system: [...jobSystem(SCAN_SYSTEM), { type: 'text', text: book.snapshot, cache_control: { type: 'ephemeral', ttl: '1h' } }],

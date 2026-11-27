@@ -73,11 +73,25 @@ Context:
 
 ## The event log
 
-What happened in the book, in order (`src/main/eventlog.ts`): the author's chat messages and the planner's replies, actions (Draft it, alternatives, a rewrite or humanize request, a merged or undone chapter change, a restore), Claude's suggestions taken or not taken, Claude's words accepted as they are, edits, bible changes and alerts opening or closing. Each event is rendered to text once, with a `[YYYY-MM-DD HH:MM]` stamp, and never re-rendered, so the log only grows. It is also appended to `.cyberkitty/log.jsonl`, the book's command history.
+What happened in the book, in order (`src/main/eventlog.ts`). Each event is rendered to text once, with a `[YYYY-MM-DD HH:MM]` stamp and a kind (chat, reply, action, edit, review, bible, alert, error), and never re-rendered, so the log only grows. It is also appended to `.cyberkitty/log.jsonl`, the book's command history.
 
-Edits are not logged per keystroke. When the log is brought up to date (before any action is logged, at every call that reads the log, and when work settles), each document is compared with how it read last time. The changed paragraphs are logged in full as they read now (`src/shared/edits.ts`): "now reads … (was …)", "added after …", "removed". Paragraphs that are Claude's unreviewed or updated words carry a tag. The comparison runs one at a time and never throws, so logging cannot hold up the work it records.
+Nothing reaches Claude except through one of four routes, each with a single entry point, so a new feature cannot bypass the log by accident:
+
+- **Actions: one table.** Every channel the UI can call is in `src/main/actions.ts`, either with the words the log uses or marked quiet with the reason (a read, or logged by another route). `index.ts` registers channels only through `handle` and `on`, which apply the table in one order: save the UI's held-back typing, log the edits before the action, log the action, run it, log what it changed or that it failed. `test/actions.test.ts` fails when a preload channel is missing from the table or registered around it.
+- **Text: comparison.** Edits are not logged per keystroke. Before and after each action, at every Claude call that reads the log, and when work settles, each document is compared with how it read last time; the changed paragraphs are logged in full as they read now (`src/shared/edits.ts`: "now reads … (was …)", "added after …", "removed"), with Claude's unreviewed or updated paragraphs tagged. This catches every edit whatever made it: typing, a draft, a merge, a restore, another editor. Comparisons run one at a time and never throw.
+- **Marks: one write point.** Every mark write goes through `Book.writeDocMarks`, which tells the log. A new suggestion is logged when it appears; when one of Claude's marks goes, the next comparison logs whether the suggestion was taken or Claude's words were accepted as they are. A suggestion made and rejected within seconds is still logged.
+- **App data: store writes.** Alerts, todos and the bible change only through their store's `update`, which hands the log the before and after. Alerts record who changed their status (`statusBy`), so the log can tell the author's dismissal from an alert closing itself. Bible entries derived from the text are left out (the edits behind them are logged); the author's, the planner's and corrected ones are logged.
+
+The planner logs its own chat turns: the author's message, its tool actions, its reply, a stop with what the author saw, and a failed reply.
+
+Before anything that reads the book (every Claude call, closing or switching the book, quitting), the main process asks the UI to save the typing it is still holding back (editors save 400ms after the last keystroke) and waits for the answer (`flushUi`). Closing the window waits the same way, so the last words before a quit are kept.
 
 Events fall into batches. A batch closes whenever a call reads the log, so a prompt carries one block per batch, and the previous call's cache entry is found by the lookback.
+
+What a snapshot keeps besides the text, so a retaken snapshot or a restart loses only detail, never state:
+- each document's review state: Claude's words not reviewed yet, updated passages, and suggestions waiting for the author (`reviewStateText`; the planner's `read_doc` returns it too);
+- the open alerts and the conversation;
+- the latest 40 actions, reviews, alerts and failures before it, read back from `log.jsonl` across sessions.
 
 ## Prompt caching
 
@@ -88,7 +102,7 @@ Caching is a prefix match: one changed byte invalidates everything after it. The
 3. The event log since the snapshot, one block per batch. The cache point (1 hour) sits on the newest block, as late as possible, because the history never changes once written. Earlier blocks are a prefix of later calls.
 4. The task, carrying the current text of whatever it acts on (the scene being drafted, the passage being rewritten, recent corrections). Never cached.
 
-The scan works differently. It gets the current text of each changed document (scene, page, chapter intent; bible entries as lines; the table of contents when scenes were added or removed), labelled as replacing the snapshot's version, rather than the history. It checks the book as it reads now, and `fileAlert` verifies every quote against the current text, so a quote from a superseded version is never filed.
+The scan works differently. It gets the current text of each changed document (scene, page, chapter intent; bible entries as lines; the table of contents when scenes were added or removed), labelled as replacing the snapshot's version, rather than the history, plus the conversation in its snapshot and the chat since, so it can see what the author has said is deliberate. Change specs get the whole current book in history mode (review state, alerts, conversation, recent actions), since a change usually grows out of the chat. It checks the book as it reads now, and `fileAlert` verifies every quote against the current text, so a quote from a superseded version is never filed.
 
 Each role keeps its own snapshot (`writer`, `scan`, `planner`), retaken when:
 - the history (or, for the scan, the changes) outgrows 20% of the snapshot (at least 8k characters, at most 120k, about 30k tokens), since carrying it would soon cost more than a fresh 1-hour write, or
@@ -121,5 +135,5 @@ Spec (structured call, the author edits it), then the writer rewrites each scene
 
 ## Testing
 
-- `npm test`: Vitest unit tests for anchors and healing, notes conventions, prompts, the book store, history and restore, tells, links, quote location, bible merging, SVG sanitizing, alert keys, the change diff, and the event log and prompt caching.
+- `npm test`: Vitest unit tests for anchors and healing, notes conventions, prompts, the book store, history and restore, tells, links, quote location, bible merging, SVG sanitizing, alert keys, the change diff, the event log and prompt caching, and the action table.
 - `npm run e2e`: launches the built app with Playwright's Electron driver on a copy of the sample book and the stand-in model, and walks the v1: draft, accept, edit, outside edit, a humanize suggestion, a chat suggestion, the bible and timeline, a todo, a direction page, a chapter change with merge and undo, history and diagrams.

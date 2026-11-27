@@ -206,6 +206,29 @@ const shots = process.env.SHOTS || fs.mkdtempSync(path.join(os.tmpdir(), 'ck-sho
   await win.click('.rail-book-actions button:has-text("Close")')
   await win.waitForSelector('.welcome-card button:has-text("New book")')
 
+  // The event log saw each kind of thing the author did, in order.
+  const log = fs.readFileSync(path.join(book, '.cyberkitty/log.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l).text)
+  const expected = [
+    'The author pressed Draft it',
+    'The author asked the writer for a plainer version',
+    'The writer suggested in the prose',
+    'The author did not take a suggestion',
+    'The author wrote in the chat',
+    'The planner suggested in the notes',
+    'The author accepted a suggestion in the notes',
+    'New todo',
+    'marked done by the author',
+    'The author merged the chapter change',
+    'The author undid the chapter change',
+    'New document: the notes of “The Letter”'
+  ]
+  let at = -1
+  for (const want of expected) {
+    const i = log.findIndex((t, j) => j > at && t.includes(want))
+    assert.ok(i > at, `event log is missing, or has out of order: ${want}`)
+    at = i
+  }
+
   assert.deepEqual(errors, [])
   await el.close()
   console.log(`e2e ok · screenshots in ${shots}`)

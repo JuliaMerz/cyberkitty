@@ -14,9 +14,9 @@
 // entry). A unit's rendered text is what the snapshot shows and what the diff
 // compares, so "changed" means exactly "renders differently".
 
-import { DIRECTION_PAGES, type PageName } from '@shared/types'
-import { bibleLine, chatText, openAlertsText } from './context'
-import { closeBatch, eventsSince, lastSeq, renderBatches } from './eventlog'
+import { DIRECTION_PAGES, type DocRef, type PageName } from '@shared/types'
+import { bibleLine, chatText, openAlertsText, reviewStateText } from './context'
+import { closeBatch, eventsSince, lastSeq, recentActions, renderBatches } from './eventlog'
 import { stripHeading } from './project'
 import { requireBook, state } from './state'
 import { bibleStore, summaryStore } from './stores'
@@ -34,6 +34,8 @@ export interface SnapshotMode {
    * the conversation so far, which the log carries on from.
    */
   history?: boolean
+  /** Include the conversation so far (the scan, which otherwise gets no history). */
+  conversation?: boolean
 }
 
 interface Unit {
@@ -78,25 +80,34 @@ function esc(s: string): string {
 
 const DIRECTION: PageName[] = DIRECTION_PAGES.map((p) => p.name).filter((n) => n !== 'style.md')
 
-async function render(mode: SnapshotMode): Promise<Rendered> {
+/**
+ * Render the book. `upTo` is the last logged event the rendering reflects:
+ * read before rendering, so anything logged meanwhile lands in the history
+ * after the snapshot (at worst twice, never lost).
+ */
+async function render(mode: SnapshotMode, upTo: number): Promise<Rendered> {
   const b = requireBook()
+  // Writer and planner see which words are Claude's and unreviewed, and which
+  // suggestions are waiting, so a retake keeps that, not only the text.
+  const review = async (ref: DocRef, where = ''): Promise<string> => (mode.history ? reviewStateText((await b.readDoc(ref)).marks, where) : '')
   const tree = await b.tree()
   const scenes = await b.scenes()
   const summaries = await summaryStore.read()
   const pages: Unit[] = []
   for (const name of DIRECTION) {
     const text = (await b.readPage(name)).trim()
-    pages.push({ key: `page:${name}`, label: name, text: `<page name="${name}">\n${text || '(empty)'}\n</page>` })
+    const marks = await review({ kind: 'page', name })
+    pages.push({ key: `page:${name}`, label: name, text: `<page name="${name}">\n${text || '(empty)'}\n${marks ? `${marks}\n` : ''}</page>` })
   }
-  const planned = (await b.readPage('bible.md')).trim()
-  const style = mode.style ? (await b.readPage('style.md')).trim() : ''
+  const planned = [(await b.readPage('bible.md')).trim(), await review({ kind: 'page', name: 'bible.md' })].filter(Boolean).join('\n')
+  const style = mode.style ? [(await b.readPage('style.md')).trim(), await review({ kind: 'page', name: 'style.md' })].filter(Boolean).join('\n') : ''
   const bible = (await bibleStore.read())
     .filter((e) => e.source.kind !== 'idea' || e.source.status !== 'dismissed')
     .map((e) => ({ key: `bible:${e.id}`, label: `bible entry ${e.id}`, text: bibleLine(e) }))
   const chapters: Rendered['chapters'] = []
   const contents: string[] = []
   for (const c of tree.chapters) {
-    const intent = stripHeading((await b.readText(`${c.id}/chapter.md`)) ?? '').trim()
+    const intent = [stripHeading((await b.readText(`${c.id}/chapter.md`)) ?? '').trim(), await review({ kind: 'chapter', chapterId: c.id })].filter(Boolean).join('\n')
     contents.push(`${c.id} · ${c.title}`)
     const units: Unit[] = []
     for (const s of scenes.filter((x) => x.chapterId === c.id)) {
@@ -107,6 +118,10 @@ async function render(mode: SnapshotMode): Promise<Rendered> {
       if (mode.notes && s.notes?.trim()) lines.push(`<notes>\n${stripHeading(s.notes).trim()}\n</notes>`)
       if (mode.proseOnlyIn !== undefined && c.id !== mode.proseOnlyIn) lines.push('<prose>(left out to fit; see the summary)</prose>')
       else lines.push(`<prose>\n${s.prose ? stripHeading(s.prose).trim() || '(not drafted yet)' : '(not drafted yet)'}\n</prose>`)
+      const marks = [mode.notes ? await review({ kind: 'scene', sceneId: s.id, file: 'notes' }, ' in the notes') : '', await review({ kind: 'scene', sceneId: s.id, file: 'prose' }, ' in the prose')]
+        .filter(Boolean)
+        .map((t) => t.replace(/^<review_state>\n|\n<\/review_state>$/g, ''))
+      if (marks.length) lines.push(`<review_state>\n${marks.join('\n')}\n</review_state>`)
       lines.push('</scene>')
       units.push({ key: `scene:${s.id}`, label: `scene ${s.id}`, text: lines.join('\n') })
     }
@@ -118,7 +133,8 @@ async function render(mode: SnapshotMode): Promise<Rendered> {
       scenes: units
     })
   }
-  const extras = mode.history ? `${await openAlertsText()}\n<conversation_so_far>\n${await chatText()}\n</conversation_so_far>` : undefined
+  const conversation = `<conversation_so_far>\n${await chatText()}\n</conversation_so_far>`
+  const extras = mode.history ? `${await openAlertsText()}\n${conversation}\n${await recentActions(upTo)}` : mode.conversation ? conversation : undefined
   return {
     extras,
     title: tree.title,
@@ -159,17 +175,17 @@ function focusChapter(r: Rendered): string {
 }
 
 /** Render the book in the given mode, fitted to the budget. */
-async function fitted(mode: SnapshotMode): Promise<{ mode: SnapshotMode; rendered: Rendered; text: string }> {
-  let rendered = await render(mode)
+async function fitted(mode: SnapshotMode, upTo = lastSeq()): Promise<{ mode: SnapshotMode; rendered: Rendered; text: string }> {
+  let rendered = await render(mode, upTo)
   let text = assemble(rendered)
   if (text.length > SNAPSHOT_BUDGET && mode.notes) {
     mode = { ...mode, notes: false }
-    rendered = await render(mode)
+    rendered = await render(mode, upTo)
     text = assemble(rendered)
   }
   if (text.length > SNAPSHOT_BUDGET) {
     mode = { ...mode, proseOnlyIn: focusChapter(rendered) }
-    rendered = await render(mode)
+    rendered = await render(mode, upTo)
     text = assemble(rendered)
   }
   return { mode, rendered, text }
@@ -240,16 +256,20 @@ export async function bookContextFor(role: string, mode: SnapshotMode, now = Dat
         return { snapshot: f.text, changes: '', history, logSeq: f.logSeq }
       }
     } else {
-      const rendered = await render(f.mode)
+      const rendered = await render(f.mode, lastSeq())
       const diff = diffUnits(f.units, unitsOf(rendered), f.contents, rendered.contents)
-      if (!changesTooLarge(diff.text.length, f.text.length)) {
+      // The scan reads documents, not the log, but still hears the conversation.
+      const chat = f.mode.conversation ? eventsSince(f.logSeq).filter((e) => e.kind === 'chat' || e.kind === 'reply') : []
+      const text = [diff.text, chat.length ? `<chat_since_snapshot>\n${chat.map((e) => e.text).join('\n')}\n</chat_since_snapshot>` : ''].filter(Boolean).join('\n')
+      if (!changesTooLarge(text.length, f.text.length)) {
         f.lastUsed = now
-        return { snapshot: f.text, changes: diff.text ? `<changed_since_snapshot>\n${CHANGES_HEAD}\n${diff.text}\n</changed_since_snapshot>` : NO_CHANGES, history: [], logSeq: f.logSeq }
+        return { snapshot: f.text, changes: text ? `<changed_since_snapshot>\n${CHANGES_HEAD}\n${text}\n</changed_since_snapshot>` : NO_CHANGES, history: [], logSeq: f.logSeq }
       }
     }
   }
-  const fit = await fitted(mode)
-  f = { text: fit.text, mode: fit.mode, units: unitsOf(fit.rendered), contents: fit.rendered.contents, takenAt: now, lastUsed: now, logSeq: lastSeq() }
+  const upTo = lastSeq()
+  const fit = await fitted(mode, upTo)
+  f = { text: fit.text, mode: fit.mode, units: unitsOf(fit.rendered), contents: fit.rendered.contents, takenAt: now, lastUsed: now, logSeq: upTo }
   frozen.set(role, f)
   return { snapshot: f.text, changes: mode.history ? '' : NO_CHANGES, history: [], logSeq: f.logSeq }
 }

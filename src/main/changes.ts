@@ -10,7 +10,6 @@ import { correctionsXml, withHistory, writerSystem } from '@shared/prompts'
 import { cleanDraft } from '@shared/notes'
 import type { ChangeSpec, HunkDecision, MarkRecord } from '@shared/types'
 import { currentBookText, writerBookContext } from './snapshot'
-import { openAlertsText } from './context'
 import { describeError, RefusedError, streamText, structured } from './gateway'
 import { loadSettings } from './settings'
 import { job, newId, requireBook, send, state, writeDoc, addMarks } from './state'
@@ -53,7 +52,9 @@ export async function proposeChange(chapterId: string, request: string): Promise
   const res = await structured<{ title: string; spec: string; scenes: string[]; effects: Array<{ scene_id: string; quote: string; note: string }> }>({
     lane,
     system: jobSystem('You write change specs for a novel in CyberKitty. A change spec is short and concrete. It names what changes, scene by scene, and what must not change. It never contains prose for the book; the writer writes that from the spec.'),
-    user: `${await currentBookText()}\n\n${await openAlertsText()}\n\n<chapter id="${chapterId}" title="${chapter.title}" />\n\n<request>\n${request}\n</request>`,
+    // The whole book as it is now, with review state, open alerts, the
+    // conversation and recent actions: a change usually grows out of the chat.
+    user: `${await currentBookText({ style: true, notes: true, history: true })}\n\n<chapter id="${chapterId}" title="${chapter.title}" />\n\n<request>\n${request}\n</request>`,
     schema: SPEC_SCHEMA,
     fakeKey: 'change'
   })

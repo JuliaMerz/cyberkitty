@@ -37,6 +37,34 @@ export function send(channel: string, ...args: unknown[]): void {
   if (state.win && !state.win.isDestroyed()) state.win.webContents.send(channel, ...args)
 }
 
+const flushWaiters = new Map<number, () => void>()
+let flushSeq = 0
+
+/**
+ * Ask the UI to save the typing it is still holding back (an editor saves
+ * 400ms after the last keystroke), so what is on disk is what the author sees.
+ * Resolves once the UI says it is done, or after a short wait.
+ */
+export function flushUi(timeoutMs = 1500): Promise<void> {
+  const win = state.win
+  if (!win || win.isDestroyed()) return Promise.resolve()
+  const id = ++flushSeq
+  return new Promise((resolve) => {
+    const done = (): void => {
+      clearTimeout(timer)
+      flushWaiters.delete(id)
+      resolve()
+    }
+    const timer = setTimeout(done, timeoutMs)
+    flushWaiters.set(id, done)
+    win.webContents.send('flush-editors', id)
+  })
+}
+
+export function uiFlushed(id: number): void {
+  flushWaiters.get(id)?.()
+}
+
 export function requireBook(): Book {
   if (!state.book) throw new Error('No book is open.')
   return state.book

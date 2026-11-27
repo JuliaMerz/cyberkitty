@@ -332,6 +332,8 @@ export interface Alert {
   /** Scene the alert is filed under, for grouping in book order. */
   sceneId?: string
   status: 'open' | 'dismissed' | 'done'
+  /** Who last changed the status: the author, or the app (an alert closes itself when its quoted words are gone). */
+  statusBy?: 'author' | 'app'
   /** Identifies the disagreement, so a dismissal sticks to the exact pair. */
   pairKey: string
   bibleId?: string
@@ -481,6 +483,9 @@ export interface CkApi {
   onNavigate(cb: (target: NavTarget) => void): () => void
   onBookOpened(cb: (tree: BookTree) => void): () => void
   onMenu(cb: (command: MenuCommand) => void): () => void
+  /** The main process asks the UI to save typing it is still holding back, then hears back. */
+  onFlushEditors(cb: (id: number) => void): () => void
+  editorsFlushed(id: number): void
 }
 
 export type MenuCommand = 'new-chapter' | 'new-scene' | 'import' | 'close-book' | 'settings' | 'toggle-chat'
