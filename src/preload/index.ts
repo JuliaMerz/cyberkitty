@@ -36,6 +36,7 @@ const api: CkApi = {
 
   draft: (req) => inv('draft:start', req),
   cancelDraft: (jobId) => ipcRenderer.send('draft:cancel', jobId),
+  detachDraft: (jobId, text, start, pos) => ipcRenderer.send('draft:detach', jobId, text, start, pos),
   alternatives: (req) => inv('tool:alternatives', req),
   rewrite: (req) => inv('tool:rewrite', req),
   ghostText: (req) => inv('tool:ghost', req),

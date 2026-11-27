@@ -410,11 +410,18 @@ export interface JobStatus {
 }
 
 /** The bridge the preload script exposes as window.ck. */
+/** What saving an API key came to: a message when it was turned down, or saved without a check. */
+export interface KeyResult {
+  saved: boolean
+  message?: string
+}
+
 export interface CkApi {
   getSettings(): Promise<Settings>
   setSettings(patch: Partial<Settings>): Promise<Settings>
   hasApiKey(): Promise<boolean>
-  setApiKey(key: string): Promise<void>
+  /** Checks the key with Anthropic, then saves it unless Anthropic turned it down. */
+  setApiKey(key: string): Promise<KeyResult>
   getSpend(): Promise<SpendSummary>
 
   openBookDialog(): Promise<BookTree | null>
@@ -437,6 +444,8 @@ export interface CkApi {
 
   draft(req: DraftRequest): Promise<string>
   cancelDraft(jobId: string): void
+  /** The scene closed mid-draft: hand the rest of the draft to the main process, with the editor's text and where the draft stands in it. */
+  detachDraft(jobId: string, text: string, start: number, pos: number): void
   alternatives(req: AlternativesRequest): Promise<ToolResult<string[]>>
   rewrite(req: RewriteRequest): Promise<ToolResult<string>>
   ghostText(req: { sceneId: string; before: string }): Promise<ToolResult<string>>

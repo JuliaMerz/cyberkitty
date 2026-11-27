@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { DEFAULT_SETTINGS, LANE_LABELS } from '@shared/defaults'
 import { MODEL_CHOICES } from '@shared/pricing'
-import type { Effort, Lane, Settings, SpendSummary } from '@shared/types'
+import type { Effort, KeyResult, Lane, Settings, SpendSummary } from '@shared/types'
 
 const ck = window.ck
 const EFFORTS: Effort[] = ['low', 'medium', 'high', 'xhigh', 'max']
@@ -26,7 +26,8 @@ function CacheLine({ spend }: { spend: SpendSummary | null }): React.JSX.Element
 export function SettingsPage({ settings, onChange }: { settings: Settings; onChange: (s: Settings) => void }): React.JSX.Element {
   const [hasKey, setHasKey] = useState<boolean | null>(null)
   const [key, setKey] = useState('')
-  const [saved, setSaved] = useState(false)
+  const [saved, setSaved] = useState<KeyResult | null>(null)
+  const [checking, setChecking] = useState(false)
   const [spend, setSpend] = useState<SpendSummary | null>(null)
 
   useEffect(() => {
@@ -40,10 +41,17 @@ export function SettingsPage({ settings, onChange }: { settings: Settings; onCha
   }
 
   async function saveKey(): Promise<void> {
-    await ck.setApiKey(key)
-    setKey('')
-    setHasKey(await ck.hasApiKey())
-    setSaved(true)
+    setChecking(true)
+    try {
+      const result = await ck.setApiKey(key)
+      if (result.saved) setKey('')
+      setHasKey(await ck.hasApiKey())
+      setSaved(result)
+    } catch (err) {
+      setSaved({ saved: false, message: String(err instanceof Error ? err.message : err) })
+    } finally {
+      setChecking(false)
+    }
   }
 
   return (
@@ -67,15 +75,15 @@ export function SettingsPage({ settings, onChange }: { settings: Settings; onCha
               value={key}
               onChange={(e) => {
                 setKey(e.target.value)
-                setSaved(false)
+                setSaved(null)
               }}
               aria-label="Anthropic API key"
             />
-            <button className="btn btn-primary" disabled={!key.trim()} onClick={() => void saveKey()}>
-              Save key
+            <button className="btn btn-primary" disabled={!key.trim() || checking} onClick={() => void saveKey()}>
+              {checking ? 'Checking…' : 'Save key'}
             </button>
           </div>
-          {saved && <p className="ok">Saved.</p>}
+          {saved && (saved.message ? <p className={saved.saved ? 'muted' : 'error-text'} role="alert">{saved.message}</p> : <p className="ok">Saved. Anthropic accepted the key.</p>)}
           {hasKey === false && !saved && <p className="muted">No key yet. Drafting needs one.</p>}
         </section>
 

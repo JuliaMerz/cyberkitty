@@ -3,14 +3,14 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { app, BrowserWindow, dialog, ipcMain, Menu, shell, type MenuItemConstructorOptions } from 'electron'
 import { watch, type FSWatcher } from 'chokidar'
-import { docKey, type AlternativesRequest, type BibleEntry, type BookTree, type ChangeSpec, type Correction, type DocRef, type DraftRequest, type HunkDecision, type MarkRecord, type PassageRef, type Place, type RewriteRequest, type Settings, type ToolResult } from '@shared/types'
+import { docKey, type AlternativesRequest, type BibleEntry, type BookTree, type ChangeSpec, type Correction, type DocRef, type DraftRequest, type HunkDecision, type KeyResult, type MarkRecord, type PassageRef, type Place, type RewriteRequest, type Settings, type ToolResult } from '@shared/types'
 import { firstHeading } from '@shared/notes'
 import { BIBLE_DIR } from '@shared/biblemd'
 import { Book, META } from './project'
 import { History } from './history'
 import { getApiKey, getSpend, loadSettings, saveSettings, setApiKey } from './settings'
 import { alternatives, ghostText, rewrite, runDraft } from './writer'
-import { canCall, describeError, setSpendListener } from './gateway'
+import { canCall, checkKey, describeError, setSpendListener } from './gateway'
 import { flushUi, send, state, uiFlushed } from './state'
 import { alertStore, bibleStore, changeStore, chatStore, diagramStore, logCorrection, summaryStore } from './stores'
 import { resetPlanner, sendChat, stopChat } from './planner'
@@ -24,6 +24,7 @@ import { scan } from './scan'
 import { mergeChange, proposeChange, runChange, saveChange, undoChange } from './changes'
 import { drawDiagram } from './diagrams'
 import { EXPORT_NAMES, exportMarkdown, type ExportKind } from './export'
+import { DraftJob, draftsInFlight } from './drafts'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 
@@ -343,7 +344,16 @@ function registerIpc(): void {
     return next
   })
   handle('key:has', async () => Boolean(await getApiKey()))
-  handle('key:set', (key: string) => setApiKey(key))
+  handle('key:set', async (key: string): Promise<KeyResult> => {
+    if (!key.trim()) {
+      await setApiKey('')
+      return { saved: true }
+    }
+    const check = await checkKey(key.trim())
+    if (!check.ok && check.bad) return { saved: false, message: check.message }
+    await setApiKey(key)
+    return check.ok ? { saved: true } : { saved: true, message: check.message }
+  })
   handle('spend:get', () => getSpend())
 
   handle('book:open-dialog', () => openBookDialog())
@@ -420,11 +430,19 @@ function registerIpc(): void {
     const lane = (await loadSettings()).lanes.writer
     const scene = `“${await sceneTitle(req.sceneId)}” (${req.sceneId})`
     draftJobs.set(jobId, scene)
+    const job = new DraftJob({ kind: 'scene', sceneId: req.sceneId, file: 'prose' })
+    draftsInFlight.set(jobId, job)
     void (async () => {
       await state.history?.snapshot('Before Claude drafted')
-      const result = await runDraft(req, lane, ctrl.signal, (delta) => send('draft-delta', jobId, delta))
+      const result = await runDraft(req, lane, ctrl.signal, (delta) => {
+        job.delta(delta)
+        send('draft-delta', jobId, delta)
+      })
+      // If the author left the scene, the rest went into the file here; mark it as the editor would.
+      await job.finish(result.model ? `drafted from notes by ${result.model}` : 'drafted from notes').catch((err) => console.error('draft finish:', err))
       drafts.delete(jobId)
       draftJobs.delete(jobId)
+      draftsInFlight.delete(jobId)
       // A stop is logged by draft:cancel; anything else that ends a draft early is a failure.
       if (!result.ok && !ctrl.signal.aborted) logEvent('app', `The draft in ${scene} failed: ${result.error ?? 'no reason given'}. What was written so far stays in the prose.`, { kind: 'error' })
       const { text: _text, ...rest } = result
@@ -433,6 +451,7 @@ function registerIpc(): void {
     return jobId
   })
   on('draft:cancel', (jobId: string) => drafts.get(jobId)?.abort())
+  on('draft:detach', (jobId: string, text: string, start: number, pos: number) => draftsInFlight.get(jobId)?.detach(text, start, pos))
   handle('tool:alternatives', (req: AlternativesRequest) => tool(() => alternatives(req)))
   handle('tool:rewrite', (req: RewriteRequest) => tool(() => rewrite(req)))
   handle('tool:ghost', (req: { sceneId: string; before: string }) => tool(() => ghostText(req.sceneId, req.before)))

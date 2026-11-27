@@ -185,6 +185,7 @@ export const SENT: Record<string, ActionEntry> = {
       return scene ? `The author stopped the draft in ${scene}. What was written so far stays in the prose.` : null
     }
   },
+  'draft:detach': { quiet: 'the draft carries on into the file; what it writes is logged as edits' },
   'chat:stop': { quiet: 'the planner logs the stop with what the author saw' },
   'editors-flushed': { quiet: 'the UI saying held-back typing is saved' }
 }

@@ -57,6 +57,24 @@ async function record(model: string, usage: Parameters<typeof costUsd>[1]): Prom
   return usd
 }
 
+/**
+ * Checks a key before it is saved, with the cheapest call there is (listing
+ * one model, which is free). Only a key Anthropic turns down counts as bad: if
+ * Anthropic cannot be reached, the key is saved and the author is told it is
+ * unchecked.
+ */
+export async function checkKey(apiKey: string): Promise<{ ok: true } | { ok: false; bad: boolean; message: string }> {
+  if (FAKE()) return { ok: true }
+  try {
+    await new Anthropic({ apiKey, maxRetries: 1, timeout: 15_000 }).models.list({ limit: 1 })
+    return { ok: true }
+  } catch (err) {
+    if (err instanceof Anthropic.AuthenticationError || err instanceof Anthropic.PermissionDeniedError)
+      return { ok: false, bad: true, message: 'Anthropic did not accept this key. Check that it was copied whole, from console.anthropic.com.' }
+    return { ok: false, bad: false, message: `Saved, but CyberKitty could not check it just now: ${describeError(err)}` }
+  }
+}
+
 /** Whether Claude can be called at all: a key is set, or the stand-in model is on. */
 export async function canCall(): Promise<boolean> {
   return FAKE() || Boolean(await getApiKey())
@@ -206,7 +224,16 @@ export function describeError(err: unknown): string {
   if (err instanceof Anthropic.RateLimitError) return 'Anthropic is rate limiting this key. Try again in a minute.'
   if (err instanceof Anthropic.APIConnectionError) return 'Could not reach Anthropic. Check the connection and try again.'
   if (err instanceof Anthropic.APIUserAbortError) return 'Stopped.'
-  if (err instanceof Anthropic.APIError) return `Anthropic returned an error: ${err.message}`
+  if (err instanceof Anthropic.APIError) {
+    // The body is {type: 'error', error: {type, message}}; an error that arrives mid-stream has no status.
+    const body = (err.error as { error?: { type?: string; message?: string } } | undefined)?.error
+    const status = err.status ?? 0
+    if (status === 529 || status >= 500 || body?.type === 'overloaded_error' || body?.type === 'api_error')
+      return 'Claude is busy right now. Try again in a moment.'
+    if (err instanceof Anthropic.PermissionDeniedError) return `Anthropic refused this key for that request${body?.message ? `: ${body.message}` : '.'}`
+    if (err instanceof Anthropic.NotFoundError) return `Anthropic does not know that model or endpoint${body?.message ? `: ${body.message}` : '.'} Check the models in Settings.`
+    return `Anthropic could not take that request: ${body?.message ?? err.message}`
+  }
   return err instanceof Error ? err.message : String(err)
 }
 

@@ -4,6 +4,7 @@
 // then the task with the current text it acts on (see withHistory).
 
 import { GUIDE_BLOCK } from './briefing'
+import { filledStyle, styleHasVoice } from './style'
 
 export const WRITER_INSTRUCTIONS = `You are the writer. Your job is to put the author's plans into prose that reads as if the author wrote it. The planner and the author decide what happens; you decide how it reads, in their voice. Sometimes a brief from the planner comes with the notes: it says what a passage must do, never how to word it. You can see the whole book and the conversation between the author and the planner below; use them to understand the story, keep continuity and catch what the author is going for. The task in each request says what this passage is.
 
@@ -52,9 +53,10 @@ export interface WriterBook {
  * guide (1h) · instructions · style page (1h) · frozen book (1h).
  */
 export function writerSystem(styleMd: string | null, snapshot?: string): SystemBlock[] {
-  const style = styleMd?.trim()
-    ? styleMd.trim()
-    : '(The author has not filled in the style page yet. Write plain, unshowy prose and keep it close to the notes.)'
+  const page = filledStyle(styleMd)
+  const style = styleHasVoice(styleMd)
+    ? page
+    : `(The author has not given samples or a description of their style yet. Write plain, unshowy prose and keep it close to the notes.)${page ? `\n\n${page}` : ''}`
   const blocks: SystemBlock[] = [
     GUIDE_BLOCK,
     { type: 'text', text: WRITER_INSTRUCTIONS },

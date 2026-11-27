@@ -17,6 +17,7 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { healMarks } from '@shared/anchors'
 import { firstHeading, humanize, slugify } from '@shared/notes'
+import { STYLE_TEMPLATE } from '@shared/style'
 import type { BookTree, ChapterRef, DocContent, DocRef, MarkRecord, PageName, SceneFile, SceneRef, Sidecar } from '@shared/types'
 
 export const MANUSCRIPT = 'manuscript'
@@ -261,25 +262,6 @@ export class Book {
   }
 }
 
-export const STYLE_TEMPLATE = `# Style
-
-## Samples
-
-Paste a few thousand words of your own prose here. A finished short story is a good start. Claude matches these more closely than anything you write about them.
-
-## Description
-
-How your prose works: rhythm, diction, point of view and tense, dialogue, imagery, and what you never do.
-
-## Ban list
-
-- something shifted
-- a breath she didn't know she was holding
-- the weight of
-- testament to
-- couldn't help but
-`
-
 export const BIBLE_TEMPLATE = `# Planned
 
 Facts you have decided before any scene says them. One bullet each; start with who or what it is about.
@@ -325,9 +307,36 @@ async function listDir(p: string): Promise<import('node:fs').Dirent[]> {
 }
 
 let tmpSeq = 0
-export async function atomicWrite(p: string, text: string): Promise<void> {
+/** Errors Windows gives while another program (OneDrive, an antivirus scanner, another editor) briefly holds a file. */
+const BUSY = new Set(['EPERM', 'EBUSY', 'EACCES'])
+
+/**
+ * Write a file whole or not at all: a temp file, then a rename over the real
+ * one. On Windows the rename can be refused for a moment while something else
+ * has the file open, so it is retried for about two seconds; then the file is
+ * written in place, which works whenever the file itself can be written.
+ */
+export async function atomicWrite(p: string, text: string, waits = [50, 100, 200, 400, 600, 800]): Promise<void> {
   await fs.mkdir(path.dirname(p), { recursive: true })
   const tmp = `${p}.${process.pid}.${tmpSeq++}.tmp`
   await fs.writeFile(tmp, text)
-  await fs.rename(tmp, p)
+  for (let i = 0; ; i++) {
+    try {
+      await fs.rename(tmp, p)
+      return
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code ?? ''
+      if (!BUSY.has(code)) {
+        await fs.rm(tmp, { force: true }).catch(() => undefined)
+        throw err
+      }
+      if (i >= waits.length) break
+      await new Promise((r) => setTimeout(r, waits[i]))
+    }
+  }
+  try {
+    await fs.writeFile(p, text)
+  } finally {
+    await fs.rm(tmp, { force: true }).catch(() => undefined)
+  }
 }

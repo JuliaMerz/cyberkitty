@@ -35,7 +35,8 @@ Every editable document is addressed by a `DocRef` (a scene file, a chapter inte
 - Conflict marks belong to an alert (`alertId`) and clear when the alert is done or dismissed.
 - Tells and gaps are derived on the fly in the editor, never stored.
 - Who owns a sidecar: while a document is open in the UI, the UI does (it maps marks through edits). Marks created in the main process (chat suggestions, conflicts) are sent to the open editor (`marks-added`), and written to the sidecar directly only when the document is closed. This avoids two writers racing on one sidecar.
-- File writes are atomic (temp file then rename). The watcher (chokidar) ignores the app's own writes by comparing against the last text written.
+- File writes are atomic (temp file then rename). On Windows the rename is refused for a moment while OneDrive, a virus scanner or another editor holds the file (EPERM, EBUSY, EACCES), so it is retried for about two seconds and then the file is written in place. A save that still fails shows a notice on the editor and is retried every few seconds; the words stay in the editor meanwhile. The watcher (chokidar) ignores the app's own writes by comparing against the last text written.
+- A streamed draft goes into the open editor piece by piece, at a place that moves with the author's own edits (typing above the draft shifts it). If the author leaves the scene mid-draft, the editor hands the draft to the main process (`draft:detach`, `src/main/drafts.ts`), which writes the rest into the file, finding its place each time by the end of what it has written so far, and marks the drafted paragraphs unreviewed when it is done.
 
 ## Model gateway
 
@@ -45,11 +46,13 @@ Every editable document is addressed by a `DocRef` (a scene file, a chapter inte
 - Cost per call is estimated from usage with list prices in `src/shared/pricing.ts` (cache reads at the cache price, 5-minute writes at 1.25x input, 1-hour writes at 2x) and added to a per-day spend file in the app's user-data folder, with today's prompt tokens split into uncached, read from cache and written to cache (`tokens.json`). Settings shows that split, which is the check that caching works. The daily cap gates background work.
 - Three call shapes: `streamText` (drafts, rewrites, ghost text), `structured` (JSON output through `output_config.format` for alternatives, settling, the scan, change specs, diagrams; replaces v1's regex parsing) and `agentTurn` (one step of the planner's tool loop).
 - Background work (settling, the scan) is marked `background` and refused once the daily cap is reached.
-- `CYBERKITTY_FAKE_WRITER=1` replaces the network call with a local stand-in so tests and demos run without a key.
+- `CYBERKITTY_FAKE_WRITER=1` replaces the network call with a local stand-in so tests and demos run without a key. `CYBERKITTY_FAKE_DELAY_MS` slows its stream for tests that act while a draft streams.
+- Errors read as words: an overloaded or failing server (529, 5xx, or an error event mid-stream) is "Claude is busy right now", other API errors give Anthropic's message rather than the JSON body.
+- A new book's style page holds instructions for the author under Samples and Description. Until the author replaces them, the writer and the planner get the page without them (`src/shared/style.ts`), and the writer is told no samples or description exist yet. The starter ban list is kept.
 
 ## API key
 
-Stored with Electron `safeStorage` (OS keychain) in the user-data folder, never in the book. If the OS offers no keychain, the key is kept for the session only. `ANTHROPIC_API_KEY` is honoured as a fallback for development.
+Stored with Electron `safeStorage` (OS keychain) in the user-data folder, never in the book. Saving checks the key first by listing one model (a free call): a key Anthropic turns down is not saved, and if Anthropic cannot be reached the key is saved with a note that it is unchecked. If the OS offers no keychain, the key is kept for the session only. `ANTHROPIC_API_KEY` is honoured as a fallback for development.
 
 ## History
 

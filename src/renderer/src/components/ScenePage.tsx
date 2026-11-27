@@ -37,7 +37,8 @@ export function ScenePage({ sceneId, title, chapter, view, onViewChange, reveal 
 
   const prose = useRef<EditorView | null>(null)
   const lastProseCursor = useRef<number | null>(null)
-  const draftState = useRef<{ jobId: string; start: number; pos: number } | null>(null)
+  /** The draft streaming in: where it began and where the next piece goes, kept in step with the author's edits. */
+  const draftState = useRef<{ jobId: string; start: number; pos: number; view: EditorView } | null>(null)
 
   const proseRef: DocRef = { kind: 'scene', sceneId, file: 'prose' }
   const notesRef: DocRef = { kind: 'scene', sceneId, file: 'notes' }
@@ -76,10 +77,26 @@ export function ScenePage({ sceneId, title, chapter, view, onViewChange, reveal 
     return () => {
       offDelta()
       offDone()
+      // Leaving the scene mid-draft: the rest of the draft goes into the file without the editor.
+      const d = draftState.current
+      if (d) {
+        draftState.current = null
+        // A draft still starting hands over once its job id arrives (see draft()).
+        if (d.jobId) ck.detachDraft(d.jobId, d.view.state.doc.toString(), d.start, d.pos)
+      }
     }
   }, [])
 
   const onProseUpdate = (u: ViewUpdate): void => {
+    // Edits other than the draft's own move where the draft goes, so typing above it does not split it.
+    const d = draftState.current
+    if (d && u.docChanged) {
+      for (const tr of u.transactions) {
+        if (!tr.docChanged || tr.isUserEvent('claude.draft')) continue
+        d.start = tr.changes.mapPos(d.start, 1)
+        d.pos = tr.changes.mapPos(d.pos, -1)
+      }
+    }
     if ((u.selectionSet || u.focusChanged) && u.view.hasFocus) lastProseCursor.current = u.state.selection.main.head
     if (u.docChanged || u.transactions.some((t) => t.effects.length)) setTick((t) => t + 1)
   }
@@ -120,11 +137,20 @@ export function ScenePage({ sceneId, title, chapter, view, onViewChange, reveal 
     setNotice(null)
     // Show the draft as started right away; the job id follows once the app has saved and logged what came before.
     setDrafting('starting')
+    // Tracked from now, so edits made while the draft starts still move its place.
+    const d = { jobId: '', start: at, pos: at, view: v }
+    draftState.current = d
     try {
       const jobId = await ck.draft({ sceneId, beats, proseBefore: v.state.doc.sliceString(0, at), proseAfter: v.state.doc.sliceString(at) })
-      draftState.current = { jobId, start: at, pos: at }
+      d.jobId = jobId
+      if (draftState.current !== d) {
+        // The author left the scene while the draft was starting.
+        ck.detachDraft(jobId, v.state.doc.toString(), d.start, d.pos)
+        return
+      }
       setDrafting(jobId)
     } catch (err) {
+      if (draftState.current === d) draftState.current = null
       setDrafting(null)
       setNotice({ tone: 'error', text: err instanceof Error ? err.message : String(err) })
     }

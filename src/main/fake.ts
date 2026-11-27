@@ -8,7 +8,8 @@ async function trickle(text: string, onText: ((d: string) => void) | undefined, 
   for (const chunk of text.match(/.{1,12}/gs) ?? []) {
     if (signal?.aborted) throw new Anthropic.APIUserAbortError()
     onText?.(chunk)
-    await new Promise((r) => setTimeout(r, 5))
+    // The pace can be slowed for tests that act while a draft streams.
+    await new Promise((r) => setTimeout(r, Number(process.env.CYBERKITTY_FAKE_DELAY_MS) || 5))
   }
 }
 

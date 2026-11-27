@@ -71,6 +71,7 @@ export function DocEditor(props: Props): React.JSX.Element {
   const [alt, setAlt] = useState<AltState | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [loaded, setLoaded] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
 
   useEffect(() => {
     let live = true
@@ -82,12 +83,20 @@ export function DocEditor(props: Props): React.JSX.Element {
     const pendingCorrections: Array<{ before: string; pos: number }> = []
     const prose = kind === 'prose'
 
+    // A save that fails says so and tries again; the words stay in the editor meanwhile.
+    const failed = (k: string, retry: () => Promise<void>) => (err: unknown): void => {
+      if (!live) return
+      setSaveError(String(err instanceof Error ? err.message : err).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''))
+      schedule(k, retry, 3000)
+    }
     const save = (): Promise<void> => {
       if (!view) return Promise.resolve()
       exists = true
-      return ck.writeDoc(docRef, view.state.doc.toString())
+      return ck.writeDoc(docRef, view.state.doc.toString()).then(() => {
+        if (live) setSaveError(null)
+      }, failed('text', save))
     }
-    const saveMarks = (): Promise<void> => (view ? ck.writeDocMarks(docRef, exportMarks(view.state)) : Promise.resolve())
+    const saveMarks = (): Promise<void> => (view ? ck.writeDocMarks(docRef, exportMarks(view.state)).catch(failed('marks', saveMarks)) : Promise.resolve())
     const schedule = (k: string, fn: () => void, ms: number): void => {
       clearTimeout(timers[k])
       timers[k] = setTimeout(() => {
@@ -317,6 +326,11 @@ export function DocEditor(props: Props): React.JSX.Element {
 
   return (
     <div className={`doc-editor ${props.className ?? ''}`}>
+      {saveError && (
+        <div className="notice notice-error" role="alert">
+          Could not save this page: {saveError}. Your text is safe here, and CyberKitty tries again every few seconds. If this keeps happening, something else may be holding the file, such as OneDrive or another editor.
+        </div>
+      )}
       <div ref={host} className="editor-host" />
       {alt && (
         <div className="alt-pop" style={{ left: Math.max(8, alt.x), top: alt.y }} role="listbox" aria-label="Alternatives">

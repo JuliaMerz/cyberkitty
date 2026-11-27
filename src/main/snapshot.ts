@@ -15,6 +15,7 @@
 // compares, so "changed" means exactly "renders differently".
 
 import { DIRECTION_PAGES, type DocRef, type PageName } from '@shared/types'
+import { filledStyle } from '@shared/style'
 import { bibleLine, chatText, openAlertsText, reviewStateText } from './context'
 import { closeBatch, eventsSince, lastSeq, recentActions, renderBatches } from './eventlog'
 import { stripHeading } from './project'
@@ -100,7 +101,7 @@ async function render(mode: SnapshotMode, upTo: number): Promise<Rendered> {
     pages.push({ key: `page:${name}`, label: name, text: `<page name="${name}">\n${text || '(empty)'}\n${marks ? `${marks}\n` : ''}</page>` })
   }
   const planned = [(await b.readPage('bible.md')).trim(), await review({ kind: 'page', name: 'bible.md' })].filter(Boolean).join('\n')
-  const style = mode.style ? [(await b.readPage('style.md')).trim(), await review({ kind: 'page', name: 'style.md' })].filter(Boolean).join('\n') : ''
+  const style = mode.style ? [filledStyle(await b.readPage('style.md')), await review({ kind: 'page', name: 'style.md' })].filter(Boolean).join('\n') : ''
   const bible = (await bibleStore.read())
     .filter((e) => e.source.kind !== 'idea' || e.source.status !== 'dismissed')
     .map((e) => ({ key: `bible:${e.id}`, label: `bible entry ${e.id}`, text: bibleLine(e) }))
@@ -138,7 +139,7 @@ async function render(mode: SnapshotMode, upTo: number): Promise<Rendered> {
   return {
     extras,
     title: tree.title,
-    style: mode.style ? { key: 'page:style.md', label: 'style.md', text: `<style_page>\n${style || '(empty)'}\n</style_page>` } : undefined,
+    style: mode.style ? { key: 'page:style.md', label: 'style.md', text: `<style_page>\n${style || '(not filled in yet: the page still holds only the instructions a new book starts with)'}\n</style_page>` } : undefined,
     pages,
     planned: { key: 'page:bible.md', label: 'bible.md', text: `<page name="bible.md">\n${planned || '(none)'}\n</page>` },
     bible,

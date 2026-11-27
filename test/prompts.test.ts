@@ -37,7 +37,7 @@ describe('writer prompt', () => {
 
   it('says so when the style page is empty', () => {
     const p = buildWriterPrompt({ ...base, styleMd: null })
-    expect(p.system.at(-1)?.text).toContain('has not filled in the style page')
+    expect(p.system.at(-1)?.text).toContain('has not given samples or a description')
   })
 })
 
