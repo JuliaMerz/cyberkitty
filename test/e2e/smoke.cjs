@@ -26,10 +26,11 @@ const shots = process.env.SHOTS || fs.mkdtempSync(path.join(os.tmpdir(), 'ck-sho
   const book = fs.mkdtempSync(path.join(os.tmpdir(), 'ck-book-'))
   fs.cpSync(path.join(app, 'resources/sample-book'), book, { recursive: true })
   const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'ck-userdata-'))
+  const exports = fs.mkdtempSync(path.join(os.tmpdir(), 'ck-export-'))
   const el = await _electron.launch({
     executablePath: require(path.join(app, 'node_modules/electron')),
     args: [app, '--no-sandbox', `--user-data-dir=${userData}`],
-    env: { ...process.env, CYBERKITTY_BOOK: book, CYBERKITTY_FAKE_WRITER: '1' }
+    env: { ...process.env, CYBERKITTY_BOOK: book, CYBERKITTY_FAKE_WRITER: '1', CYBERKITTY_EXPORT_DIR: exports }
   })
   const win = await el.firstWindow()
   const errors = []
@@ -126,6 +127,10 @@ const shots = process.env.SHOTS || fs.mkdtempSync(path.join(os.tmpdir(), 'ck-sho
   await win.click('.rail-row:has-text("Story bible")')
   await win.click('button:has-text("Update from the text")')
   await win.waitForSelector('.bible-entry', { timeout: 10000 })
+  // The bible is plain Markdown too.
+  const bibleFiles = fs.readdirSync(path.join(book, 'bible'))
+  assert.ok(bibleFiles.length > 0, 'the bible has Markdown files')
+  assert.match(fs.readFileSync(path.join(book, 'bible', bibleFiles[0]), 'utf8'), /^# .+\n\n## .+\n\n- /)
   await win.screenshot({ path: path.join(shots, '8-bible.png') })
   await win.click('.rail-row:has-text("Timeline")')
   await win.waitForSelector('.timeline-list li')
@@ -203,6 +208,18 @@ const shots = process.env.SHOTS || fs.mkdtempSync(path.join(os.tmpdir(), 'ck-sho
   await win.fill('.modal input', 'The Island')
   await win.keyboard.press('Enter')
   await win.waitForSelector('.rail-chapter.current:has-text("The Island")')
+  // Export: the manuscript, the notes and the bible, each as one Markdown file.
+  await menuClick('Manuscript…')
+  await menuClick('Notes and Planning…')
+  await menuClick('Story Bible…')
+  await win.waitForTimeout(800)
+  const exported = fs.readdirSync(exports).sort()
+  assert.equal(exported.length, 3, `three exports, got ${exported.join(', ')}`)
+  const manuscript = fs.readFileSync(path.join(exports, exported.find((f) => f.endsWith('manuscript.md'))), 'utf8')
+  assert.match(manuscript, /## The Harbor\n\n/)
+  assert.ok(!manuscript.includes('- He turns.'), 'no notes in the manuscript')
+  assert.match(fs.readFileSync(path.join(exports, exported.find((f) => f.endsWith('notes and planning.md'))), 'utf8'), /- A gull lands on the rail/)
+
   await win.click('.rail-book-actions button:has-text("Close")')
   await win.waitForSelector('.welcome-card button:has-text("New book")')
 

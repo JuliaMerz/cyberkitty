@@ -4,12 +4,13 @@
 //   book.md, summary.md, theme.md, tropes.md, characters.md, outline.md
 //   style.md                                  the style page
 //   bible.md                                  planned bible entries, by hand
+//   bible/characters.md, events.md, …        the story bible as Markdown (see shared/biblemd.ts)
 //   manuscript/01-the-harbor/chapter.md       # The Harbor, then the chapter's intent
 //   manuscript/01-the-harbor/01-arrival.md        prose only
 //   manuscript/01-the-harbor/01-arrival.notes.md  the scratchpad
 //   .cyberkitty/scenes/01-the-harbor/01-arrival.json   sidecar for both scene files
 //   .cyberkitty/docs/<page>.json              sidecars for pages and chapters
-//   .cyberkitty/*.json                        chat, bible, summaries, alerts, changes
+//   .cyberkitty/*.json                        chat, bible sidecar, summaries, alerts, changes
 //   .cyberkitty/history.git                   hidden snapshots
 
 import { promises as fs } from 'node:fs'

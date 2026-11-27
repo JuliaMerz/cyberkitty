@@ -14,7 +14,8 @@ const AUTHOR = { name: 'CyberKitty', email: 'history@cyberkitty.local' }
 function tracked(filepath: string): boolean {
   if (filepath.startsWith(GITDIR)) return false
   if (filepath.endsWith('.tmp')) return false
-  return filepath.endsWith('.md') || ((filepath.startsWith(`${META}/scenes/`) || filepath.startsWith(`${META}/docs/`)) && filepath.endsWith('.json'))
+  // The bible's sidecar travels with its Markdown, so a restore brings back both.
+  return filepath.endsWith('.md') || filepath === `${META}/bible.json` || ((filepath.startsWith(`${META}/scenes/`) || filepath.startsWith(`${META}/docs/`)) && filepath.endsWith('.json'))
 }
 
 export class History {

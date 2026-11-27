@@ -115,7 +115,7 @@ export function BiblePage({ focusId }: { focusId?: string }): React.JSX.Element 
           </button>
         </div>
       </header>
-      <div className="page-hint">Taken from the text as your work settles, with no approval needed: the text already says it. Correct anything and the correction sticks. Claude’s own ideas wait as unreviewed until you keep or dismiss them.</div>
+      <div className="page-hint">Taken from the text as your work settles, with no approval needed: the text already says it. Correct anything and the correction sticks. Claude’s own ideas wait as unreviewed until you keep or dismiss them. The bible is also plain Markdown in the book’s bible folder, one file per kind; edits made there count too.</div>
       <div className="scroll-page">
         {ideas.length > 0 && (
           <section>

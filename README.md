@@ -22,9 +22,9 @@ CyberKitty is a desktop app for writing fiction with Claude one scene at a time.
 **The book around the scene**
 - Direction pages: summary, theme, tropes, characters and arcs, outline, style. Plain Markdown files at the top of the book folder.
 - Chapter pages: what the chapter is for, its scenes with summaries Claude keeps up to date, and chapter-scale changes: Claude writes a change spec you edit and approve, the writer rewrites, and you review paragraph diffs before anything merges. The whole change is one undo.
-- Story bible and timeline, filled in from the text as your work settles, with a link to the words behind every fact. Correct anything and it sticks. Plan entries by hand in `bible.md`. Claude's own ideas wait as unreviewed until you keep or dismiss them.
+- Story bible and timeline, filled in from the text as your work settles, with a link to the words behind every fact. Correct anything and it sticks. The bible is plain Markdown in `bible/`, so you can also edit it in any editor. Plan entries by hand in `bible.md`. Claude's own ideas wait as unreviewed until you keep or dismiss them.
 - Alerts: when you leave a chapter or pause, Claude reads the whole book and files what no longer fits, quoting both sides. Fix either side and the alert closes itself. Also: outline entries the writing has left behind, scenes written before a direction page changed, todos, and passages of yours proposed as style samples.
-- Maps and diagrams drawn from the bible. Import Markdown files as scenes. History with restore points.
+- Maps and diagrams drawn from the bible. Import Markdown files as scenes. Export the manuscript, the notes and planning, or the bible as one Markdown file each (File > Export as Markdown). History with restore points.
 - A File menu for new books, chapters and scenes (Ctrl+Shift+N, Ctrl+Alt+N, Ctrl+N), opening and closing books, import and settings.
 
 **Underneath**
@@ -43,10 +43,11 @@ book.md                                        # Title
 summary.md theme.md tropes.md characters.md outline.md   direction pages
 style.md                                       the style page, read by every writing prompt
 bible.md                                       planned bible entries, by hand
+bible/characters.md events.md movements.md places.md world.md   the story bible, kept from the text; edit freely
 manuscript/01-the-harbor/chapter.md            # The Harbor
 manuscript/01-the-harbor/01-arrival.md         prose only
 manuscript/01-the-harbor/01-arrival.notes.md   the scratchpad
-.cyberkitty/                                   sidecars, chat, bible, alerts and history; safe to delete (you lose review state, never words)
+.cyberkitty/                                   sidecars, chat, alerts and history; safe to delete (you lose review state and the bible's links to its sources, never words)
 ```
 
 ## Development

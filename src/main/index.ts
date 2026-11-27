@@ -5,6 +5,7 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, shell, type MenuItemConstruc
 import { watch, type FSWatcher } from 'chokidar'
 import { docKey, type AlternativesRequest, type BibleEntry, type BookTree, type ChangeSpec, type Correction, type DocRef, type DraftRequest, type HunkDecision, type MarkRecord, type PassageRef, type Place, type RewriteRequest, type Settings, type ToolResult } from '@shared/types'
 import { firstHeading } from '@shared/notes'
+import { BIBLE_DIR } from '@shared/biblemd'
 import { Book, META } from './project'
 import { History } from './history'
 import { getApiKey, getSpend, loadSettings, saveSettings, setApiKey } from './settings'
@@ -22,6 +23,7 @@ import { settle } from './settling'
 import { scan } from './scan'
 import { mergeChange, proposeChange, runChange, saveChange, undoChange } from './changes'
 import { drawDiagram } from './diagrams'
+import { EXPORT_NAMES, exportMarkdown, type ExportKind } from './export'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 
@@ -71,6 +73,8 @@ async function openBook(dir: string): Promise<BookTree | null> {
   lastChapter = null
   await saveSettings({ lastBook: dir })
   startWatching(state.book)
+  // Write the bible's Markdown files (books from before them get them now).
+  await bibleStore.update((all) => all).catch(() => undefined)
   void state.history.snapshot('Opened the book')
   return treeWithCounts(state.book)
 }
@@ -84,6 +88,12 @@ function startWatching(b: Book): void {
   })
   const onChange = async (abs: string): Promise<void> => {
     if (state.book !== b) return
+    // The bible's files: the Bible page rereads them, which takes in the edit.
+    if (path.relative(b.root, abs).split(path.sep)[0] === BIBLE_DIR) {
+      send('data-changed', 'bible')
+      scheduleSettle()
+      return
+    }
     const ref = b.refForPath(abs)
     if (!ref) return
     let text: string | null = null
@@ -208,6 +218,28 @@ async function openSample(): Promise<BookTree | null> {
   return openBook(target)
 }
 
+/** Save the book as one Markdown file of the given kind, where the author picks. */
+async function exportBook(kind: ExportKind): Promise<void> {
+  const b = state.book
+  if (!b || !state.win) return
+  await flushUi()
+  const name = `${(await b.title()).replace(/[\\/:*?"<>|]/g, '').trim() || 'Book'} - ${EXPORT_NAMES[kind]}.md`
+  // Tests write straight into a folder instead of asking.
+  const dir = process.env.CYBERKITTY_EXPORT_DIR
+  const target = dir
+    ? path.join(dir, name)
+    : (
+        await dialog.showSaveDialog(state.win, {
+          title: `Export the ${EXPORT_NAMES[kind]}`,
+          defaultPath: path.join(app.getPath('documents'), name),
+          filters: [{ name: 'Markdown', extensions: ['md'] }]
+        })
+      ).filePath
+  if (!target) return
+  await fs.writeFile(target, await exportMarkdown(b, kind))
+  if (!dir) shell.showItemInFolder(target)
+}
+
 /** The app menu. Book-level items run here; items that need the page are sent to the UI. */
 function buildMenu(): void {
   const opened = (p: Promise<BookTree | null>): void => {
@@ -227,6 +259,14 @@ function buildMenu(): void {
         { label: 'Open Book…', accelerator: 'CmdOrCtrl+O', click: () => opened(openBookDialog()) },
         { label: 'Open the Sample Book', click: () => opened(openSample()) },
         { label: 'Import Markdown as Scenes…', click: ui('import') },
+        {
+          label: 'Export as Markdown',
+          submenu: [
+            { label: 'Manuscript…', click: () => void exportBook('manuscript') },
+            { label: 'Notes and Planning…', click: () => void exportBook('notes') },
+            { label: 'Story Bible…', click: () => void exportBook('bible') }
+          ]
+        },
         { label: 'Close Book', click: ui('close-book') },
         { type: 'separator' },
         { label: 'Settings', accelerator: 'CmdOrCtrl+,', click: ui('settings') },

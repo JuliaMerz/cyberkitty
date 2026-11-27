@@ -245,6 +245,8 @@ async function compare(): Promise<void> {
   // Marks known before reading: a mark written meanwhile is only reported
   // once a later comparison has seen it on disk.
   const candidates = known ? new Map([...known].map(([k, v]) => [k, new Map(v)])) : null
+  // Reading the bible takes in edits made to its Markdown files elsewhere; its listener logs them.
+  await bibleStore.read()
   const docs = await readDocs()
   const marks = await readMarks(docs)
   const now: Baseline = { docs: new Map(docs.map((d) => [docKey(d.ref), d])) }
