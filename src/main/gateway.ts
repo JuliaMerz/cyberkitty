@@ -1,19 +1,70 @@
 // The model gateway: the one module that talks to Anthropic. It streams,
-// handles refusals and errors, and logs cost per task. This slice has the
-// writer lane; the planner's agent loop arrives with chat.
+// places cache breakpoints, handles refusals and errors, enforces the daily
+// cap on background work and logs cost per task.
 
 import Anthropic from '@anthropic-ai/sdk'
+import type { BetaContentBlock, BetaMessageParam, BetaTextBlockParam, BetaToolUnion } from '@anthropic-ai/sdk/resources/beta/messages/messages'
 import { costUsd } from '@shared/pricing'
 import type { LaneSetting } from '@shared/types'
-import { getApiKey } from './settings'
+import { addSpend, getApiKey, getSpend } from './settings'
+import { fake } from './fake'
+
+export type SystemBlocks = BetaTextBlockParam[]
+
+export class NoKeyError extends Error {
+  constructor() {
+    super('Add your Anthropic API key in Settings to let Claude work.')
+  }
+}
+
+export class CapError extends Error {
+  constructor() {
+    super('Background work paused: today’s spending cap is reached. Raise it in Settings, or wait until tomorrow.')
+  }
+}
+
+export class RefusedError extends Error {
+  constructor() {
+    super('Claude declined this request. Rephrase it, or pick another model for this kind of work in Settings and try again.')
+  }
+}
+
+const FAKE = (): boolean => Boolean(process.env.CYBERKITTY_FAKE_WRITER)
+const BETAS = ['server-side-fallback-2026-07-01']
+
+let onSpend: ((todayUsd: number, capUsd: number) => void) | null = null
+export function setSpendListener(fn: (todayUsd: number, capUsd: number) => void): void {
+  onSpend = fn
+}
+
+async function client(): Promise<Anthropic> {
+  const apiKey = await getApiKey()
+  if (!apiKey) throw new NoKeyError()
+  return new Anthropic({ apiKey })
+}
+
+async function record(model: string, usage: Parameters<typeof costUsd>[1]): Promise<number> {
+  const usd = costUsd(model, usage)
+  if (usd > 0) {
+    const s = await addSpend(usd)
+    onSpend?.(s.todayUsd, s.capUsd)
+  }
+  return usd
+}
+
+export async function checkCap(): Promise<void> {
+  const s = await getSpend()
+  if (s.capUsd > 0 && s.todayUsd >= s.capUsd) throw new CapError()
+}
 
 export interface StreamTextArgs {
   lane: LaneSetting
-  system: Array<{ type: 'text'; text: string; cache_control?: { type: 'ephemeral' } }>
+  system: SystemBlocks
   user: string
   maxTokens: number
-  signal: AbortSignal
-  onText: (delta: string) => void
+  signal?: AbortSignal
+  onText?: (delta: string) => void
+  background?: boolean
 }
 
 export interface StreamTextResult {
@@ -21,29 +72,20 @@ export interface StreamTextResult {
   model: string
   costUsd: number
   refused: boolean
-  stopReason: string | null
 }
 
-export class NoKeyError extends Error {
-  constructor() {
-    super('Add your Anthropic API key in Settings to let Claude write.')
-  }
-}
-
+/** One streamed text reply. */
 export async function streamText(args: StreamTextArgs): Promise<StreamTextResult> {
-  if (process.env.CYBERKITTY_FAKE_WRITER) return fakeStream(args)
-
-  const apiKey = await getApiKey()
-  if (!apiKey) throw new NoKeyError()
-  const client = new Anthropic({ apiKey })
-
+  if (args.background) await checkCap()
+  if (FAKE()) return fake.text(args)
+  const c = await client()
   // Dark fiction can trip a safety classifier. Server-side fallback reruns a
   // declined request on a model that will take it, inside the same call.
-  const stream = client.beta.messages.stream(
+  const stream = c.beta.messages.stream(
     {
       model: args.lane.model,
       max_tokens: args.maxTokens,
-      betas: ['server-side-fallback-2026-07-01'],
+      betas: BETAS,
       fallbacks: 'default',
       output_config: { effort: args.lane.effort },
       system: args.system,
@@ -51,24 +93,95 @@ export async function streamText(args: StreamTextArgs): Promise<StreamTextResult
     },
     { signal: args.signal }
   )
-
   let text = ''
   stream.on('text', (delta) => {
     text += delta
-    args.onText(delta)
+    args.onText?.(delta)
   })
   const final = await stream.finalMessage()
-  return {
-    text,
-    model: final.model,
-    costUsd: costUsd(final.model, final.usage),
-    refused: final.stop_reason === 'refusal',
-    stopReason: final.stop_reason
+  return { text, model: final.model, costUsd: await record(final.model, final.usage), refused: final.stop_reason === 'refusal' }
+}
+
+/** A reply in a JSON shape, for anything the app parses. Replaces v1's regex parsing. */
+export async function structured<T>(args: {
+  lane: LaneSetting
+  system: SystemBlocks
+  user: string
+  schema: Record<string, unknown>
+  maxTokens?: number
+  signal?: AbortSignal
+  background?: boolean
+  fakeKey: string
+}): Promise<T> {
+  if (args.background) await checkCap()
+  if (FAKE()) return fake.structured(args.fakeKey, args.user) as T
+  const c = await client()
+  const stream = c.beta.messages.stream(
+    {
+      model: args.lane.model,
+      max_tokens: args.maxTokens ?? 32000,
+      betas: BETAS,
+      fallbacks: 'default',
+      output_config: { effort: args.lane.effort, format: { type: 'json_schema', schema: args.schema } },
+      system: args.system,
+      messages: [{ role: 'user', content: args.user }]
+    },
+    { signal: args.signal }
+  )
+  const final = await stream.finalMessage()
+  await record(final.model, final.usage)
+  if (final.stop_reason === 'refusal') throw new RefusedError()
+  const text = final.content.flatMap((b) => (b.type === 'text' ? [b.text] : [])).join('')
+  try {
+    return JSON.parse(text) as T
+  } catch {
+    throw new Error('Claude’s reply could not be read. Try again.')
   }
 }
 
+export interface AgentTurnArgs {
+  lane: LaneSetting
+  system: SystemBlocks
+  tools: BetaToolUnion[]
+  messages: BetaMessageParam[]
+  signal?: AbortSignal
+  onText?: (delta: string) => void
+}
+
+export interface AgentTurnResult {
+  content: BetaContentBlock[]
+  stopReason: string | null
+  model: string
+  costUsd: number
+}
+
+/** One request of the planner's agent loop. The caller runs tools and loops. */
+export async function agentTurn(args: AgentTurnArgs): Promise<AgentTurnResult> {
+  if (FAKE()) return fake.agent(args)
+  const c = await client()
+  const stream = c.beta.messages.stream(
+    {
+      model: args.lane.model,
+      max_tokens: 64000,
+      betas: BETAS,
+      fallbacks: 'default',
+      output_config: { effort: args.lane.effort },
+      system: args.system,
+      tools: args.tools,
+      messages: args.messages,
+      // The growing conversation tail is cached automatically; the book
+      // snapshot carries its own longer-lived breakpoint in the system blocks.
+      cache_control: { type: 'ephemeral' }
+    },
+    { signal: args.signal }
+  )
+  stream.on('text', (delta) => args.onText?.(delta))
+  const final = await stream.finalMessage()
+  return { content: final.content, stopReason: final.stop_reason, model: final.model, costUsd: await record(final.model, final.usage) }
+}
+
 export function describeError(err: unknown): string {
-  if (err instanceof NoKeyError) return err.message
+  if (err instanceof NoKeyError || err instanceof CapError || err instanceof RefusedError) return err.message
   if (err instanceof Anthropic.AuthenticationError) return 'Anthropic did not accept the API key. Check it in Settings.'
   if (err instanceof Anthropic.RateLimitError) return 'Anthropic is rate limiting this key. Try again in a minute.'
   if (err instanceof Anthropic.APIConnectionError) return 'Could not reach Anthropic. Check the connection and try again.'
@@ -77,21 +190,6 @@ export function describeError(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
 
-/** A stand-in writer for tests and demos without a key: CYBERKITTY_FAKE_WRITER=1. */
-async function fakeStream(args: StreamTextArgs): Promise<StreamTextResult> {
-  const beats = /<scene_notes[^>]*>([\s\S]*?)<\/scene_notes>/.exec(args.user)?.[1] ?? ''
-  const lines = beats
-    .split('\n')
-    .map((l) => l.replace(/^\s*[-*+]\s+/, '').trim())
-    .filter((l) => l && !l.startsWith('#'))
-  const paras = lines.length
-    ? lines.map((l) => (/^["“]/.test(l) ? l : `${l.charAt(0).toUpperCase()}${l.slice(1).replace(/[.]?$/, '.')}`))
-    : ['The ferry was late.']
-  const text = paras.join('\n\n')
-  for (const chunk of text.match(/.{1,12}/gs) ?? []) {
-    if (args.signal.aborted) throw new Anthropic.APIUserAbortError()
-    args.onText(chunk)
-    await new Promise((r) => setTimeout(r, 8))
-  }
-  return { text, model: 'fake-writer', costUsd: 0, refused: false, stopReason: 'end_turn' }
+export function isAbort(err: unknown): boolean {
+  return err instanceof Anthropic.APIUserAbortError || (err instanceof Error && err.name === 'AbortError')
 }

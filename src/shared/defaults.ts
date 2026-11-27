@@ -13,7 +13,12 @@ export const DEFAULT_SETTINGS: Settings = {
   dailyCapUsd: 5,
   lastBook: null,
   sceneView: 'both',
-  settleSeconds: 30
+  settleSeconds: 30,
+  scanIdleMinutes: 10,
+  alternativesAhead: false,
+  reviewWhenSeen: false,
+  ghostText: false,
+  blockingHelp: 'some'
 }
 
 export const LANE_LABELS: Record<keyof Settings['lanes'], { name: string; tasks: string }> = {

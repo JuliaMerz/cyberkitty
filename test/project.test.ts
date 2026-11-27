@@ -38,34 +38,33 @@ describe('Book', () => {
     const ch = await book.createChapter('One')
     const sc = await book.createScene(ch, 'S')
     const prose = '# S\n\nFirst paragraph by Claude.\n\nSecond paragraph by Claude.\n'
-    await book.writeSceneFile(sc, 'prose', prose)
+    const ref = { kind: 'scene' as const, sceneId: sc, file: 'prose' as const }
+    await book.writeDoc(ref, prose)
     const q = 'Second paragraph by Claude.'
-    await book.writeSidecar(sc, {
-      version: 1,
-      marks: [
-        { id: 'x', kind: 'unreviewed', file: 'prose', anchor: makeAnchor(prose, prose.indexOf(q), prose.indexOf(q) + q.length), origin: { source: 'draft', at: '' } }
-      ]
-    })
+    await book.writeDocMarks(ref, [
+      { id: 'x', kind: 'unreviewed', file: 'prose', anchor: makeAnchor(prose, prose.indexOf(q), prose.indexOf(q) + q.length), origin: { source: 'draft', at: '' } }
+    ])
     expect((await book.tree()).chapters[0].scenes[0].toReview).toBe(1)
     // Another editor inserts a paragraph above it.
     await fs.writeFile(book.scenePath(sc, 'prose'), '# S\n\nNew opening.\n\n' + prose.slice(4))
-    const scene = await book.readScene(sc)
-    expect(scene.sidecar.marks).toHaveLength(1)
-    expect(scene.sidecar.marks[0].anchor.quote).toBe(q)
+    const doc = await book.readDoc(ref)
+    expect(doc.marks).toHaveLength(1)
+    expect(doc.marks[0].anchor.quote).toBe(q)
     // And then deletes it.
     await fs.writeFile(book.scenePath(sc, 'prose'), '# S\n\nNew opening.\n')
-    expect((await book.readScene(sc)).sidecar.marks).toHaveLength(0)
+    expect((await book.readDoc(ref)).marks).toHaveLength(0)
   })
 
   it('survives a corrupt sidecar without losing words', async () => {
     const dir = tmp()
     const book = await Book.create(dir, 'B')
     const sc = await book.createScene(await book.createChapter('One'), 'S')
-    await fs.mkdir(path.dirname(book.sidecarPath(sc)), { recursive: true })
-    await fs.writeFile(book.sidecarPath(sc), '{not json')
-    const scene = await book.readScene(sc)
-    expect(scene.notes).toBe('# S\n\n')
-    expect(scene.sidecar.marks).toEqual([])
+    const ref = { kind: 'scene' as const, sceneId: sc, file: 'notes' as const }
+    await fs.mkdir(path.dirname(book.sidecarPath(ref)), { recursive: true })
+    await fs.writeFile(book.sidecarPath(ref), '{not json')
+    const doc = await book.readDoc(ref)
+    expect(doc.text).toBe('# S\n\n')
+    expect(doc.marks).toEqual([])
   })
 
   it('refuses paths outside the book', () => {
@@ -81,10 +80,28 @@ describe('History', () => {
     const h = new History(dir)
     expect(await h.snapshot('first')).toBeTruthy()
     expect(await h.snapshot('nothing changed')).toBeNull()
-    await book.writeSceneFile(sc, 'prose', '# S\n\nWords.\n')
+    await book.writeDoc({ kind: 'scene', sceneId: sc, file: 'prose' }, '# S\n\nWords.\n')
     expect(await h.snapshot('wrote')).toBeTruthy()
     await fs.rm(book.scenePath(sc, 'prose'))
     expect(await h.snapshot('deleted')).toBeTruthy()
     expect((await h.log()).map((e) => e.message)).toEqual(['deleted', 'wrote', 'first'])
+  })
+
+  it('restores an earlier version, and the restore can itself be undone', async () => {
+    const dir = tmp()
+    const book = await Book.create(dir, 'B')
+    const sc = await book.createScene(await book.createChapter('One'), 'S')
+    const ref = { kind: 'scene' as const, sceneId: sc, file: 'prose' as const }
+    const h = new History(dir)
+    await book.writeDoc(ref, '# S\n\nFirst version.\n')
+    const first = (await h.snapshot('v1'))!
+    await book.writeDoc(ref, '# S\n\nSecond version.\n')
+    await h.snapshot('v2')
+    const touched = await h.restore(first)
+    expect(touched).toContain(`${sc}.md`)
+    expect((await book.readDoc(ref)).text).toBe('# S\n\nFirst version.\n')
+    const log = (await h.log()).map((e) => e.message)
+    expect(log[0]).toBe('Restored an earlier version')
+    expect(log).toContain('v2')
   })
 })
