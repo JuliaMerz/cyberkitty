@@ -1,15 +1,17 @@
 import { useState } from 'react'
-import type { BookTree, SpendSummary } from '@shared/types'
-
-export type Place = { kind: 'scene'; sceneId: string } | { kind: 'style' } | { kind: 'settings' }
+import { DIRECTION_PAGES, type BookTree, type JobStatus, type SpendSummary } from '@shared/types'
+import type { Route } from '../App'
 
 interface Props {
   tree: BookTree
-  place: Place | null
+  route: Route | null
   spend: SpendSummary
-  onOpen: (p: Place) => void
+  job: JobStatus | null
+  chatOpen: boolean
+  onOpen: (r: Route) => void
   onNewChapter: (title: string) => void
   onNewScene: (chapterId: string, title: string) => void
+  onToggleChat: () => void
 }
 
 function Chevron({ open }: { open: boolean }): React.JSX.Element {
@@ -64,10 +66,19 @@ function NewItem({ label, indent, onCreate }: { label: string; indent?: boolean;
   )
 }
 
-export function Rail({ tree, place, spend, onOpen, onNewChapter, onNewScene }: Props): React.JSX.Element {
-  const currentChapter = place?.kind === 'scene' ? tree.chapters.find((c) => c.scenes.some((s) => s.id === place.sceneId))?.id : undefined
+export function Rail({ tree, route, spend, job, chatOpen, onOpen, onNewChapter, onNewScene, onToggleChat }: Props): React.JSX.Element {
+  const currentChapter =
+    route?.kind === 'scene' ? tree.chapters.find((c) => c.scenes.some((s) => s.id === route.sceneId))?.id : route?.kind === 'chapter' ? route.chapterId : undefined
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const pct = spend.capUsd > 0 ? Math.min(100, (spend.todayUsd / spend.capUsd) * 100) : 0
+  const is = (kind: Route['kind'], extra?: (r: Route) => boolean): boolean => route?.kind === kind && (!extra || extra(route))
+
+  const row = (label: string, r: Route, current: boolean, badge?: React.ReactNode): React.JSX.Element => (
+    <button key={label} className={`rail-row${current ? ' current' : ''}`} onClick={() => onOpen(r)} aria-current={current ? 'page' : undefined}>
+      <span className="rail-scene-title">{label}</span>
+      {badge}
+    </button>
+  )
 
   return (
     <nav className="rail" aria-label="Book">
@@ -78,34 +89,53 @@ export function Rail({ tree, place, spend, onOpen, onNewChapter, onNewScene }: P
 
       <div className="rail-group">
         <div className="rail-heading">Direction</div>
-        <button className={`rail-row${place?.kind === 'style' ? ' current' : ''}`} onClick={() => onOpen({ kind: 'style' })}>
-          Style
-        </button>
+        {DIRECTION_PAGES.map((p) =>
+          row(
+            p.title,
+            { kind: 'page', name: p.name },
+            is('page', (r) => r.kind === 'page' && r.name === p.name),
+            p.name === 'outline.md' && tree.divergedOutline ? <span className="mono rail-status orange">{tree.divergedOutline} diverged</span> : undefined
+          )
+        )}
       </div>
 
       <div className="rail-group">
+        <div className="rail-heading">Book</div>
+        {row('Story bible', { kind: 'bible' }, is('bible'))}
+        {row('Timeline', { kind: 'timeline' }, is('timeline'))}
+        {row('Alerts', { kind: 'alerts' }, is('alerts'), tree.openAlerts ? <span className="mono rail-status orange">{tree.openAlerts}</span> : undefined)}
+        {row('Maps and diagrams', { kind: 'diagrams' }, is('diagrams'))}
+        {row('History', { kind: 'history' }, is('history'))}
+      </div>
+
+      <div className="rail-group rail-manuscript">
         <div className="rail-heading">Manuscript</div>
         {tree.chapters.map((c) => {
           const open = !collapsed[c.id] || currentChapter === c.id
+          const chapterCurrent = route?.kind === 'chapter' && route.chapterId === c.id
           return (
             <div key={c.id}>
-              <button className="rail-row rail-chapter" onClick={() => setCollapsed((s) => ({ ...s, [c.id]: open }))} aria-expanded={open}>
-                <Chevron open={open} />
-                <span>
+              <div className={`rail-row rail-chapter${chapterCurrent ? ' current' : ''}`}>
+                <button className="rail-chev" aria-label={open ? 'Collapse' : 'Expand'} aria-expanded={open} onClick={() => setCollapsed((s) => ({ ...s, [c.id]: open }))}>
+                  <Chevron open={open} />
+                </button>
+                <button className="rail-chapter-title" onClick={() => onOpen({ kind: 'chapter', chapterId: c.id })}>
                   {c.number} · {c.title}
-                </span>
-              </button>
+                </button>
+              </div>
               {open && (
                 <>
                   {c.scenes.map((s) => {
-                    const current = place?.kind === 'scene' && place.sceneId === s.id
-                    const status = s.toReview
-                      ? { text: `${s.toReview} to review`, cls: 'blue' }
-                      : s.hasProse
-                        ? { text: 'drafted', cls: '' }
-                        : s.hasNotes
-                          ? { text: 'notes only', cls: '' }
-                          : { text: 'empty', cls: '' }
+                    const current = route?.kind === 'scene' && route.sceneId === s.id
+                    const status = s.conflicts
+                      ? { text: `${s.conflicts} conflict${s.conflicts === 1 ? '' : 's'}`, cls: 'orange' }
+                      : s.toReview
+                        ? { text: `${s.toReview} to review`, cls: 'blue' }
+                        : s.hasProse
+                          ? { text: 'drafted', cls: '' }
+                          : s.hasNotes
+                            ? { text: 'notes only', cls: '' }
+                            : { text: 'empty', cls: '' }
                     return (
                       <button
                         key={s.id}
@@ -128,6 +158,16 @@ export function Rail({ tree, place, spend, onOpen, onNewChapter, onNewScene }: P
       </div>
 
       <div className="rail-foot">
+        {job && job.state === 'running' && (
+          <div className="rail-job mono" title={job.detail}>
+            <span className="pulse" aria-hidden="true" /> {job.label}
+          </div>
+        )}
+        {job && job.state === 'error' && (
+          <div className="rail-job mono error-text" title={job.detail}>
+            {job.label}
+          </div>
+        )}
         <div className="spend mono">
           <span>Spent today</span>
           <span className="ink">
@@ -137,9 +177,14 @@ export function Rail({ tree, place, spend, onOpen, onNewChapter, onNewScene }: P
         <div className="meter" aria-hidden="true">
           <div style={{ width: `${pct}%` }} />
         </div>
-        <button className={`rail-row${place?.kind === 'settings' ? ' current' : ''}`} onClick={() => onOpen({ kind: 'settings' })}>
-          Settings
-        </button>
+        <div className="rail-foot-row">
+          <button className={`rail-row${route?.kind === 'settings' ? ' current' : ''}`} onClick={() => onOpen({ kind: 'settings' })}>
+            Settings
+          </button>
+          <button className={`rail-row${chatOpen ? ' current' : ''}`} onClick={onToggleChat}>
+            Chat
+          </button>
+        </div>
       </div>
     </nav>
   )

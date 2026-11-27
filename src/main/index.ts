@@ -9,7 +9,7 @@ import { Book, META } from './project'
 import { History } from './history'
 import { getApiKey, getSpend, loadSettings, saveSettings, setApiKey } from './settings'
 import { alternatives, ghostText, rewrite, runDraft } from './writer'
-import { describeError, setSpendListener } from './gateway'
+import { canCall, describeError, setSpendListener } from './gateway'
 import { send, state } from './state'
 import { alertStore, bibleStore, changeStore, chatStore, diagramStore, logCorrection, summaryStore } from './stores'
 import { resetPlanner, sendChat, stopChat } from './planner'
@@ -113,13 +113,13 @@ async function scheduleSettleAsync(): Promise<void> {
     void (async () => {
       if (!state.book) return
       await state.history?.snapshot('Work settled')
-      if (await getApiKey()) await settle().catch(() => undefined)
+      if (await canCall()) await settle().catch(() => undefined)
       else await refreshAlerts().catch(() => undefined)
     })()
   }, s.settleSeconds * 1000)
   if (scanTimer) clearTimeout(scanTimer)
   scanTimer = setTimeout(() => {
-    if (state.book) void getApiKey().then((k) => { if (k) void scan() })
+    if (state.book) void canCall().then((k) => { if (k) void scan() })
   }, s.scanIdleMinutes * 60 * 1000)
 }
 function scheduleSettle(): void {
@@ -131,7 +131,7 @@ function noteActivity(place: Place): void {
   state.lastActivity = Date.now()
   // Leaving a chapter is a natural moment to read the whole book.
   if (place.chapterId && lastChapter && place.chapterId !== lastChapter) {
-    void getApiKey().then((k) => { if (k) void scan() })
+    void canCall().then((k) => { if (k) void scan() })
   }
   if (place.chapterId) lastChapter = place.chapterId
   scheduleSettle()

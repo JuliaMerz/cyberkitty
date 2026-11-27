@@ -1,11 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { EditorSelection } from '@codemirror/state'
+import { useEffect, useRef, useState } from 'react'
 import type { EditorView, ViewUpdate } from '@codemirror/view'
-import { healMarks } from '@shared/anchors'
-import type { ChapterRef, DraftResult, MarkKind, MarkRecord, SceneContent, SceneFile, Settings } from '@shared/types'
-import { exportMarks, liveMarks, machineEdit, markDraftedParagraphs, marksChanged, setMarks } from '../editor/marks'
-import { KeyBar } from './KeyBar'
-import { MarkdownEditor } from './MarkdownEditor'
+import type { ChapterRef, DocRef, DraftResult, SceneSummary, Settings } from '@shared/types'
+import { machineEdit, markDraftedParagraphs } from '../editor/marks'
+import { useApp } from '../appContext'
+import { KeyBar, stepTo, useCounts } from './KeyBar'
+import { DocEditor } from './DocEditor'
 
 const ck = window.ck
 
@@ -16,9 +15,11 @@ type View = Settings['sceneView']
 
 interface Props {
   sceneId: string
+  title: string
   chapter: ChapterRef | undefined
   view: View
   onViewChange: (v: View) => void
+  reveal?: { file: 'prose' | 'notes'; quote: string; n: number } | null
 }
 
 interface Notice {
@@ -26,124 +27,31 @@ interface Notice {
   text: string
 }
 
-export function ScenePage({ sceneId, chapter, view, onViewChange }: Props): React.JSX.Element {
-  const [scene, setScene] = useState<SceneContent | null>(null)
-  const [loadKey, setLoadKey] = useState(0)
-  const [, setTick] = useState(0)
+export function ScenePage({ sceneId, title, chapter, view, onViewChange, reveal }: Props): React.JSX.Element {
+  const app = useApp()
+  const [tick, setTick] = useState(0)
   const [drafting, setDrafting] = useState<string | null>(null)
   const [notice, setNotice] = useState<Notice | null>(null)
   const [notesSelection, setNotesSelection] = useState('')
+  const [summary, setSummary] = useState<SceneSummary | null>(null)
 
   const prose = useRef<EditorView | null>(null)
-  const notes = useRef<EditorView | null>(null)
-  const proseExists = useRef(false)
   const lastProseCursor = useRef<number | null>(null)
-  const saveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
   const draftState = useRef<{ jobId: string; start: number; pos: number } | null>(null)
 
-  const editorFor = (file: SceneFile): EditorView | null => (file === 'prose' ? prose.current : notes.current)
+  const proseRef: DocRef = { kind: 'scene', sceneId, file: 'prose' }
+  const notesRef: DocRef = { kind: 'scene', sceneId, file: 'notes' }
+  const refs = view === 'notes' ? [notesRef] : view === 'prose' ? [proseRef] : [proseRef, notesRef]
+  const counts = useCounts(refs, tick)
+  const place = { label: title, page: 'scene' as const, sceneId, chapterId: chapter?.id }
 
-  // Load the scene, and reload it when another scene is opened.
   useEffect(() => {
-    let live = true
-    setScene(null)
     setNotice(null)
-    proseExists.current = false
     lastProseCursor.current = null
-    void ck.readScene(sceneId).then((s) => {
-      if (!live) return
-      proseExists.current = s.prose !== null
-      setScene(s)
-      setLoadKey((k) => k + 1)
-    })
-    return () => {
-      live = false
-      flushSaves()
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const load = (): void => void ck.getSummaries().then((s) => setSummary(s[sceneId] ?? null))
+    load()
+    return ck.onDataChanged((what) => what === 'summaries' && load())
   }, [sceneId])
-
-  const applyMarks = useCallback((file: SceneFile, v: EditorView, records: MarkRecord[]) => {
-    const healed = healMarks(v.state.doc.toString(), records.filter((m) => m.file === file))
-    v.dispatch({
-      effects: setMarks.of(healed.marks.map((record) => ({ record, range: healed.ranges.get(record.id)! }))),
-      annotations: machineEdit.of('external')
-    })
-  }, [])
-
-  const saveSidecar = useCallback(() => {
-    const marks: MarkRecord[] = []
-    if (prose.current) marks.push(...exportMarks(prose.current.state))
-    if (notes.current) marks.push(...exportMarks(notes.current.state))
-    void ck.writeSidecar(sceneId, { version: 1, marks })
-  }, [sceneId])
-
-  const saveFile = useCallback(
-    (file: SceneFile) => {
-      const v = editorFor(file)
-      if (!v) return
-      if (file === 'prose') proseExists.current = true
-      void ck.writeSceneFile(sceneId, file, v.state.doc.toString())
-    },
-    [sceneId]
-  )
-
-  function schedule(key: string, fn: () => void, ms: number): void {
-    clearTimeout(saveTimers.current[key])
-    saveTimers.current[key] = setTimeout(() => {
-      delete saveTimers.current[key]
-      fn()
-    }, ms)
-  }
-
-  function flushSaves(): void {
-    for (const [key, t] of Object.entries(saveTimers.current)) {
-      clearTimeout(t)
-      if (key === 'prose' || key === 'notes') saveFile(key)
-      if (key === 'sidecar') saveSidecar()
-    }
-    saveTimers.current = {}
-  }
-
-  const onUpdate = (file: SceneFile) => (u: ViewUpdate) => {
-    const external = u.transactions.some((t) => t.annotation(machineEdit) === 'external')
-    if (u.docChanged && !external) {
-      schedule(file, () => saveFile(file), 400)
-      ck.noteActivity()
-    }
-    if ((u.docChanged && !external) || marksChanged(u)) {
-      schedule('sidecar', saveSidecar, 500)
-      setTick((t) => t + 1)
-    }
-    if (file === 'prose' && (u.selectionSet || u.focusChanged) && u.view.hasFocus) {
-      lastProseCursor.current = u.state.selection.main.head
-    }
-    if (file === 'notes' && (u.selectionSet || u.docChanged)) {
-      const sel = u.state.selection.main
-      setNotesSelection(sel.empty ? '' : u.state.sliceDoc(sel.from, sel.to))
-    }
-  }
-
-  // Edits made in another app are picked up, and marks heal against them.
-  useEffect(
-    () =>
-      ck.onFileChanged((e) => {
-        if (e.sceneId !== sceneId) return
-        const v = editorFor(e.file)
-        if (!v || e.text === null || e.text === v.state.doc.toString()) return
-        if (draftState.current && e.file === 'prose') return
-        const records = exportMarks(v.state)
-        v.dispatch({
-          changes: { from: 0, to: v.state.doc.length, insert: e.text },
-          annotations: machineEdit.of('external')
-        })
-        applyMarks(e.file, v, records)
-        if (e.file === 'prose') proseExists.current = true
-        setNotice({ tone: 'info', text: `Picked up changes to the ${e.file} made outside CyberKitty.` })
-      }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [sceneId]
-  )
 
   // Streamed draft text goes straight into the prose file.
   useEffect(() => {
@@ -151,11 +59,7 @@ export function ScenePage({ sceneId, chapter, view, onViewChange }: Props): Reac
       const d = draftState.current
       const v = prose.current
       if (!d || d.jobId !== jobId || !v) return
-      v.dispatch({
-        changes: { from: d.pos, insert: text },
-        annotations: machineEdit.of('claude'),
-        userEvent: 'claude.draft'
-      })
+      v.dispatch({ changes: { from: d.pos, insert: text }, annotations: machineEdit.of('claude'), userEvent: 'claude.draft' })
       d.pos += text.length
     })
     const offDone = ck.onDraftDone((jobId, result: DraftResult) => {
@@ -164,26 +68,32 @@ export function ScenePage({ sceneId, chapter, view, onViewChange }: Props): Reac
       draftState.current = null
       setDrafting(null)
       const v = prose.current
-      if (v && d.pos > d.start) {
-        markDraftedParagraphs(v, d.start, d.pos, 'prose', result.model ? `drafted from notes by ${result.model}` : 'drafted from notes')
-        saveFile('prose')
-        saveSidecar()
-      }
+      if (v && d.pos > d.start) markDraftedParagraphs(v, d.start, d.pos, 'prose', result.model ? `drafted from notes by ${result.model}` : 'drafted from notes')
       if (!result.ok) setNotice({ tone: result.refused ? 'warn' : 'error', text: result.error ?? 'The draft failed.' })
-      else if (result.missingPinned?.length)
-        setNotice({ tone: 'warn', text: `The draft did not use your pinned wording: “${result.missingPinned.join('”, “')}”.` })
+      else if (result.missingPinned?.length) setNotice({ tone: 'warn', text: `The draft did not use your pinned wording: “${result.missingPinned.join('”, “')}”.` })
       else setNotice(null)
     })
     return () => {
       offDelta()
       offDone()
     }
-  }, [saveFile, saveSidecar])
+  }, [])
+
+  const onProseUpdate = (u: ViewUpdate): void => {
+    if ((u.selectionSet || u.focusChanged) && u.view.hasFocus) lastProseCursor.current = u.state.selection.main.head
+    if (u.docChanged || u.transactions.some((t) => t.effects.length)) setTick((t) => t + 1)
+  }
+  const onNotesUpdate = (u: ViewUpdate): void => {
+    if (u.selectionSet || u.docChanged) {
+      const sel = u.state.selection.main
+      setNotesSelection(sel.empty ? '' : u.state.sliceDoc(sel.from, sel.to))
+    }
+    if (u.docChanged || u.transactions.some((t) => t.effects.length)) setTick((t) => t + 1)
+  }
 
   async function draft(): Promise<void> {
     const v = prose.current
-    const n = notes.current
-    if (!v || !n || drafting) return
+    if (!v || drafting) return
     if (view === 'notes') onViewChange('both')
     let beats = notesSelection.trim() ? notesSelection : undefined
     const doc = v.state.doc
@@ -198,7 +108,6 @@ export function ScenePage({ sceneId, chapter, view, onViewChange }: Props): Reac
       v.dispatch({ changes: { from: line.from, to: line.to }, annotations: machineEdit.of('claude') })
       at = line.from
     } else if (lastProseCursor.current === null || line.text.trim()) {
-      // Start a new paragraph after the line the cursor is on.
       at = lastProseCursor.current === null ? doc.length : line.to
     }
     const before = v.state.doc.sliceString(0, at)
@@ -206,61 +115,29 @@ export function ScenePage({ sceneId, chapter, view, onViewChange }: Props): Reac
     if (sep) v.dispatch({ changes: { from: at, insert: sep }, annotations: machineEdit.of('claude') })
     at += sep.length
     const after = v.state.doc.sliceString(at)
-    if (after.trim() && !after.startsWith('\n\n')) {
-      v.dispatch({ changes: { from: at, insert: '\n\n' }, annotations: machineEdit.of('claude') })
-    }
+    if (after.trim() && !after.startsWith('\n\n')) v.dispatch({ changes: { from: at, insert: '\n\n' }, annotations: machineEdit.of('claude') })
 
     setNotice(null)
-    const jobId = await ck.draft({
-      sceneId,
-      beats,
-      proseBefore: v.state.doc.sliceString(0, at),
-      proseAfter: v.state.doc.sliceString(at)
-    })
+    const jobId = await ck.draft({ sceneId, beats, proseBefore: v.state.doc.sliceString(0, at), proseAfter: v.state.doc.sliceString(at) })
     draftState.current = { jobId, start: at, pos: at }
     setDrafting(jobId)
   }
 
-  function stopDraft(): void {
-    if (drafting) ck.cancelDraft(drafting)
-  }
-
-  // Recomputed on every render; the editors tick a render when marks change.
-  const counts: Record<MarkKind, number> = { unreviewed: 0, updated: 0, suggested: 0, conflict: 0 }
-  for (const v of [prose.current, notes.current]) {
-    if (!v) continue
-    for (const m of liveMarks(v.state)) counts[m.record.kind]++
-  }
-
-  function step(kind: MarkKind): void {
-    const order: EditorView[] = []
-    if (view !== 'notes' && prose.current) order.push(prose.current)
-    if (view !== 'prose' && notes.current) order.push(notes.current)
-    const all = order.flatMap((v) => liveMarks(v.state).filter((m) => m.record.kind === kind).map((m) => ({ v, m })))
-    if (!all.length) return
-    const focused = order.find((v) => v.hasFocus) ?? order[0]
-    const head = focused.state.selection.main.head
-    const startIdx = order.indexOf(focused)
-    const next =
-      all.find(({ v, m }) => (order.indexOf(v) === startIdx && m.from > head) || order.indexOf(v) > startIdx) ?? all[0]
-    next.v.focus()
-    next.v.dispatch({ selection: EditorSelection.range(next.m.from, next.m.to), scrollIntoView: true })
-  }
-
-  if (!scene) return <div className="scene-loading">Opening…</div>
-
-  const proseDoc = scene.prose ?? `# ${scene.title}\n\n`
-  const notesDoc = scene.notes ?? ''
   const toReview = counts.unreviewed + counts.updated
   const draftLabel = notesSelection.trim() ? 'Draft selected notes' : 'Draft it'
+  const short = sceneId.split('/').pop()
 
   return (
     <main className="page">
       <header className="page-header">
         <div className="crumbs">
-          {chapter && <span className="crumb-parent">{chapter.number} · {chapter.title}</span>}
+          {chapter && (
+            <button className="crumb-parent linkish" onClick={() => app.navigate({ kind: 'chapter', chapterId: chapter.id })}>
+              {chapter.number} · {chapter.title}
+            </button>
+          )}
           {chapter && <span className="crumb-sep">/</span>}
-          <span className="crumb-current">{scene.title}</span>
+          <span className="crumb-current">{title}</span>
         </div>
         <div className="segmented" role="tablist" aria-label="Scene view">
           {(['notes', 'both', 'prose'] as const).map((v) => (
@@ -271,12 +148,17 @@ export function ScenePage({ sceneId, chapter, view, onViewChange }: Props): Reac
         </div>
         <div className="header-right">
           {toReview > 0 && (
-            <button className="chip chip-blue" onClick={() => step('unreviewed')}>
+            <button className="chip chip-blue" onClick={() => stepTo(refs, counts.unreviewed ? 'unreviewed' : 'updated')}>
               {toReview} {toReview === 1 ? 'paragraph' : 'paragraphs'} to review
             </button>
           )}
+          {counts.conflict > 0 && (
+            <button className="chip chip-orange" onClick={() => stepTo(refs, 'conflict')}>
+              {counts.conflict} conflict{counts.conflict === 1 ? '' : 's'}
+            </button>
+          )}
           {drafting ? (
-            <button className="btn" onClick={stopDraft}>
+            <button className="btn" onClick={() => ck.cancelDraft(drafting)}>
               <span className="pulse" aria-hidden="true" /> Writing… Stop
             </button>
           ) : (
@@ -299,42 +181,62 @@ export function ScenePage({ sceneId, chapter, view, onViewChange }: Props): Reac
       <div className={`scene-body view-${view}`}>
         <section className="pane pane-notes" aria-label="Notes" hidden={view === 'prose'}>
           <div className="pane-label">
-            <span>{sceneId.split('/').pop()}.notes.md</span>
+            <span>{short}.notes.md</span>
             <span>scratchpad</span>
           </div>
-          <MarkdownEditor
-            docKey={`${sceneId}:notes:${loadKey}`}
-            doc={notesDoc}
+          {summary && (
+            <div className="scene-summary" title="Claude keeps this summary up to date as the scene settles">
+              <span className="mono muted">summary </span>
+              <Summary summary={summary} onSeen={() => void ck.markSummarySeen(sceneId)} />
+            </div>
+          )}
+          <DocEditor
+            docRef={notesRef}
             kind="notes"
             placeholder={NOTES_PLACEHOLDER}
-            className="editor-host"
-            onView={(v) => {
-              notes.current = v
-              if (v) applyMarks('notes', v, scene.sidecar.marks)
-            }}
-            onUpdate={onUpdate('notes')}
+            place={{ ...place, file: 'notes', label: `${title}, notes` }}
+            reveal={reveal?.file === 'notes' ? reveal : null}
+            onUpdate={onNotesUpdate}
+            onView={() => setTick((t) => t + 1)}
           />
         </section>
         <section className="pane pane-prose" aria-label="Prose" hidden={view === 'notes'}>
           <div className="pane-label">
-            <span>{sceneId.split('/').pop()}.md</span>
-            <span>click to type · hover a shade for options</span>
+            <span>{short}.md</span>
+            <span>click to type · hover a shade for options · select text for tools</span>
           </div>
-          <MarkdownEditor
-            docKey={`${sceneId}:prose:${loadKey}`}
-            doc={proseDoc}
+          <DocEditor
+            docRef={proseRef}
             kind="prose"
-            className="editor-host"
+            initial={`# ${title}\n\n`}
+            place={{ ...place, file: 'prose' }}
+            reveal={reveal?.file !== 'notes' ? (reveal ?? null) : null}
+            onUpdate={onProseUpdate}
             onView={(v) => {
               prose.current = v
-              if (v) applyMarks('prose', v, scene.sidecar.marks)
+              setTick((t) => t + 1)
             }}
-            onUpdate={onUpdate('prose')}
+            onExternal={() => setNotice({ tone: 'info', text: 'Picked up changes made outside CyberKitty.' })}
           />
         </section>
       </div>
 
-      <KeyBar counts={counts} onStep={step} />
+      <KeyBar counts={counts} onStep={(k) => stepTo(refs, k)} />
     </main>
+  )
+}
+
+/** A scene summary; sentences that changed since the author last looked are shaded as updated. */
+export function Summary({ summary, onSeen }: { summary: SceneSummary; onSeen?: () => void }): React.JSX.Element {
+  const parts = summary.text.match(/[^.!?]+[.!?]+["”’)]*\s*|[^.!?]+$/g) ?? [summary.text]
+  const changed = new Set(summary.changed.map((s) => s.trim()))
+  return (
+    <span className="summary-text" onMouseEnter={summary.changed.length ? onSeen : undefined}>
+      {parts.map((p, i) => (
+        <span key={i} className={changed.has(p.trim()) ? 'ck-mark ck-updated' : undefined}>
+          {p}
+        </span>
+      ))}
+    </span>
   )
 }

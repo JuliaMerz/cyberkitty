@@ -91,3 +91,16 @@ describe('alerts', () => {
     expect(pairKey('continuity', [a, b])).not.toBe(pairKey('timeline', [a, b]))
   })
 })
+
+import { applyChoices, diffParagraphs, splitParagraphs } from '../src/renderer/src/diff'
+
+describe('change review diff', () => {
+  it('groups paragraph changes and rebuilds from per-hunk choices', () => {
+    const a = splitParagraphs('# S\n\nOne.\n\nTwo.\n\nThree.\n')
+    const b = splitParagraphs('# S\n\nOne.\n\nTwo, warmer.\n\nThree.\n\nFour.\n')
+    const h = diffParagraphs(a, b)
+    expect(h.map((x) => x.kind)).toEqual(['same', 'change', 'same', 'change'])
+    expect(applyChoices(h, [false, true, false, false])).toBe('# S\n\nOne.\n\nTwo, warmer.\n\nThree.\n')
+    expect(applyChoices(h, [false, false, false, true])).toBe('# S\n\nOne.\n\nTwo.\n\nThree.\n\nFour.\n')
+  })
+})

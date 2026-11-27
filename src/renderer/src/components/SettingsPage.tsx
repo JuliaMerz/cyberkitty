@@ -116,6 +116,26 @@ export function SettingsPage({ settings, onChange }: { settings: Settings; onCha
         </section>
 
         <section>
+          <h2>Writing help</h2>
+          <label className="row">
+            <span>How much Claude volunteers in chat while you plan</span>
+            <select value={settings.blockingHelp} onChange={(e) => void update({ blockingHelp: e.target.value as Settings['blockingHelp'] })} aria-label="How much Claude volunteers">
+              <option value="quiet">Quiet: answer what I ask</option>
+              <option value="some">Some: speak up when it matters</option>
+              <option value="lots">Lots: ideas, staging, connections</option>
+            </select>
+          </label>
+          <label className="row check">
+            <input type="checkbox" checked={settings.ghostText} onChange={(e) => void update({ ghostText: e.target.checked })} />
+            <span>Ghost text: suggest the next sentence while I write prose (Tab to take it). Experimental.</span>
+          </label>
+          <label className="row check">
+            <input type="checkbox" checked={settings.reviewWhenSeen} onChange={(e) => void update({ reviewWhenSeen: e.target.checked })} />
+            <span>Count Claude’s paragraphs as reviewed once they have been fully on screen for a few seconds</span>
+          </label>
+        </section>
+
+        <section>
           <h2>Pauses</h2>
           <label className="row">
             <span>Seconds without typing before work counts as settled</span>
@@ -125,6 +145,16 @@ export function SettingsPage({ settings, onChange }: { settings: Settings; onCha
               step={5}
               value={settings.settleSeconds}
               onChange={(e) => void update({ settleSeconds: Math.max(5, Number(e.target.value) || 30) })}
+            />
+          </label>
+          <label className="row">
+            <span>Minutes without typing before Claude reads the whole book for inconsistencies</span>
+            <input
+              type="number"
+              min={2}
+              step={1}
+              value={settings.scanIdleMinutes}
+              onChange={(e) => void update({ scanIdleMinutes: Math.max(2, Number(e.target.value) || 10) })}
             />
           </label>
         </section>

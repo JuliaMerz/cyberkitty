@@ -1,6 +1,8 @@
 // End-to-end smoke test: launches the built app on a copy of the sample book
-// with a stand-in writer (no API key, no network), drafts a scene, accepts and
-// edits marks, then edits the file from outside the app.
+// with a stand-in Claude (no API key, no network) and walks through the v1:
+// drafting and review, humanize tools, chat suggestions, the bible and
+// timeline, alerts, direction pages, a chapter-scale change and its undo,
+// history and diagrams.
 //
 //   npm run build && npm run e2e        (Linux CI: xvfb-run -a npm run e2e)
 //
@@ -81,6 +83,90 @@ const shots = process.env.SHOTS || fs.mkdtempSync(path.join(os.tmpdir(), 'ck-sho
 
   // History has snapshots.
   assert.ok(fs.existsSync(path.join(book, '.cyberkitty/history.git/HEAD')))
+  const notesFile = path.join(book, 'manuscript/01-the-harbor/01-arrival.notes.md')
+
+  // Humanize: select a sentence, ask for it plainer; it arrives as a suggestion.
+  const line = win.locator('.ck-editor-prose .cm-line', { hasText: 'A line added in another editor.' })
+  await line.click()
+  await win.keyboard.press('Home')
+  await win.keyboard.press('Shift+End')
+  await win.waitForSelector('.ck-seltools')
+  await win.screenshot({ path: path.join(shots, '5-selection-tools.png') })
+  await win.click('.ck-seltool:has-text("Plainer")')
+  await win.waitForSelector('.ck-suggestion', { timeout: 10000 })
+  await win.locator('.ck-editor-prose .ck-sug-replace').hover()
+  await win.waitForSelector('.ck-hover-btn.reject')
+  await win.screenshot({ path: path.join(shots, '6-suggestion.png') })
+  await win.locator('.ck-hover-btn.accept').click()
+  await win.waitForTimeout(800)
+  assert.match(fs.readFileSync(proseFile, 'utf8'), /A line added in another editor, plainly\./)
+
+  // Chat: from a beat in the notes, ask for a suggestion; it lands in the notes.
+  await win.locator('.ck-editor-notes .cm-line', { hasText: 'He turns.' }).click()
+  await win.fill('.chat-compose textarea', 'Can you suggest a beat after this one?')
+  await win.keyboard.press('Enter')
+  await win.waitForSelector('.ck-editor-notes .ck-suggestion', { timeout: 10000 })
+  await win.waitForSelector('.chat-entry.claude .ck-link', { timeout: 10000 })
+  await win.screenshot({ path: path.join(shots, '7-chat-suggestion.png') })
+  assert.ok(!fs.readFileSync(notesFile, 'utf8').includes('gull'), 'a suggestion is not in the file')
+  await win.locator('.ck-editor-notes .ck-suggestion').hover()
+  await win.waitForSelector('.ck-hover-btn.accept')
+  await win.locator('.ck-hover-btn.accept').click()
+  await win.waitForTimeout(800)
+  assert.match(fs.readFileSync(notesFile, 'utf8'), /- He turns\.\n- A gull lands on the rail/)
+
+  // The bible and timeline fill in from the text.
+  await win.click('.rail-row:has-text("Story bible")')
+  await win.click('button:has-text("Update from the text")')
+  await win.waitForSelector('.bible-entry', { timeout: 10000 })
+  await win.screenshot({ path: path.join(shots, '8-bible.png') })
+  await win.click('.rail-row:has-text("Timeline")')
+  await win.waitForSelector('.timeline-list li')
+
+  // Alerts: a todo in book order.
+  await win.click('.rail-row:has-text("Alerts")')
+  await win.fill('.todo-add input', 'Plant the key in chapter 1')
+  await win.click('.todo-add button')
+  await win.waitForSelector('.alert-card:has-text("Plant the key")')
+  await win.screenshot({ path: path.join(shots, '9-alerts.png') })
+  await win.click('.alert-card:has-text("Plant the key") button:has-text("Done")')
+  await win.waitForSelector('.alert-card:has-text("Plant the key")', { state: 'detached' })
+
+  // A direction page is a plain Markdown file.
+  await win.click('.rail-row:has-text("Characters")')
+  await win.locator('.ck-editor-page .cm-content').click()
+  await win.keyboard.press('Control+End')
+  await win.keyboard.type('\n\n## Tomas\n\nKeeps the keys.')
+  await win.waitForTimeout(900)
+  assert.match(fs.readFileSync(path.join(book, 'characters.md'), 'utf8'), /## Tomas\n\nKeeps the keys\./)
+
+  // A chapter-scale change: spec, rewrite, review, merge, undo.
+  await win.click('.rail-chapter-title')
+  await win.waitForSelector('.scene-card')
+  await win.screenshot({ path: path.join(shots, '10-chapter.png') })
+  const original = fs.readFileSync(proseFile, 'utf8')
+  await win.fill('.chapter-side textarea', 'Make Tomas warmer.')
+  await win.click('button:has-text("Propose a change")')
+  await win.waitForSelector('button:has-text("Approve and rewrite")', { timeout: 10000 })
+  await win.click('button:has-text("Approve and rewrite")')
+  await win.waitForSelector('button:has-text("Merge into the book")', { timeout: 20000 })
+  await win.screenshot({ path: path.join(shots, '11-change-review.png') })
+  await win.click('button:has-text("Accept all")')
+  await win.click('button:has-text("Merge into the book")')
+  await win.waitForSelector('button:has-text("Undo the whole change")', { timeout: 10000 })
+  assert.notEqual(fs.readFileSync(proseFile, 'utf8'), original, 'the merge changed the scene')
+  await win.click('button:has-text("Undo the whole change")')
+  await win.waitForTimeout(800)
+  assert.equal(fs.readFileSync(proseFile, 'utf8'), original, 'undo restored the scene')
+
+  // History and diagrams.
+  await win.click('.rail-row:has-text("History")')
+  await win.waitForSelector('.history-list li')
+  await win.click('.rail-row:has-text("Maps and diagrams")')
+  await win.fill('.todo-add input', 'a map of the harbor')
+  await win.click('button:has-text("Draw")')
+  await win.waitForSelector('.diagram img')
+  await win.screenshot({ path: path.join(shots, '12-diagrams.png') })
 
   assert.deepEqual(errors, [])
   await el.close()

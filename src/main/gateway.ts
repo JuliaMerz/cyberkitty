@@ -52,6 +52,11 @@ async function record(model: string, usage: Parameters<typeof costUsd>[1]): Prom
   return usd
 }
 
+/** Whether Claude can be called at all: a key is set, or the stand-in model is on. */
+export async function canCall(): Promise<boolean> {
+  return FAKE() || Boolean(await getApiKey())
+}
+
 export async function checkCap(): Promise<void> {
   const s = await getSpend()
   if (s.capUsd > 0 && s.todayUsd >= s.capUsd) throw new CapError()

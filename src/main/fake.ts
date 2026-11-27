@@ -67,25 +67,36 @@ export const fake = {
   async agent(args: AgentTurnArgs): Promise<AgentTurnResult> {
     const last = args.messages[args.messages.length - 1]
     const blocks = Array.isArray(last.content) ? last.content : [{ type: 'text' as const, text: String(last.content) }]
-    const afterTool = blocks.some((b) => b.type === 'tool_result')
-    const text = blocks.flatMap((b) => (b.type === 'text' ? [b.text] : [])).join('\n')
-    const scene = /scene_id="([^"]+)"/.exec(text)?.[1]
-    const paragraph = /<paragraph>([\s\S]*?)<\/paragraph>/.exec(text)?.[1]
-    if (!afterTool && scene && paragraph && /suggest/i.test(text)) {
-      const quote = firstSentence(paragraph)
-      return {
-        content: [
-          { type: 'text', text: 'Let me suggest something.', citations: null },
-          { type: 'tool_use', id: `toolu_fake_${Date.now()}`, name: 'suggest_edit', input: { scene_id: scene, file: 'prose', quote, replacement: quote.replace(/\.$/, ', and nobody came.'), note: 'tighter' }, caller: { type: 'direct' } }
-        ] as AgentTurnResult['content'],
-        stopReason: 'tool_use',
-        model: 'fake-planner',
-        costUsd: 0
+    const toolResult = blocks.find((b) => b.type === 'tool_result')
+    let reply: string
+    if (toolResult && toolResult.type === 'tool_result') {
+      const out = typeof toolResult.content === 'string' ? toolResult.content : JSON.stringify(toolResult.content)
+      const link = /Link: (ck:\S+)/.exec(out)?.[1]
+      reply = link ? `I suggested [a new beat](${link}) in your notes.` : `That did not work: ${out}`
+    } else {
+      const text = blocks.flatMap((b) => (b.type === 'text' ? [b.text] : [])).join('\n')
+      const scene = /scene_id="([^"]+)"/.exec(text)?.[1]
+      const file = /file="(notes|prose)"/.exec(text)?.[1]
+      const paragraph = /<paragraph>([\s\S]*?)<\/paragraph>/.exec(text)?.[1]?.trim()
+      if (scene && file === 'notes' && paragraph && /suggest/i.test(text)) {
+        return {
+          content: [
+            { type: 'text', text: 'Let me suggest something.', citations: null },
+            {
+              type: 'tool_use',
+              id: `toolu_fake_${Date.now()}`,
+              name: 'suggest_insert',
+              input: { doc: { scene_id: scene, file: 'notes' }, after_quote: paragraph, text: '- A gull lands on the rail and nobody shoos it.', note: 'texture' },
+              caller: { type: 'direct' }
+            }
+          ] as AgentTurnResult['content'],
+          stopReason: 'tool_use',
+          model: 'fake-planner',
+          costUsd: 0
+        }
       }
+      reply = 'Noted. Tell me more about what this scene is for.'
     }
-    const reply = afterTool
-      ? `I suggested [a rewrite](ck:scene/${encodeURIComponent(scene ?? '')}?q=${encodeURIComponent('nobody came')}) on the page.`
-      : 'Noted. Tell me more about what this scene is for.'
     await trickle(reply, args.onText, args.signal)
     return { content: [{ type: 'text', text: reply, citations: null }] as AgentTurnResult['content'], stopReason: 'end_turn', model: 'fake-planner', costUsd: 0 }
   }
