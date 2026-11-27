@@ -4,6 +4,7 @@
 // scenes written before a direction page changed. None of it asks for
 // approval, and it runs only for text that changed since last time.
 
+import { jobSystem } from '@shared/briefing'
 import { createHash } from 'node:crypto'
 import { linkFor } from '@shared/links'
 import { DIRECTION_PAGES, type DocRef, type PageName, type SceneSummary } from '@shared/types'
@@ -82,7 +83,7 @@ async function settleScenes(): Promise<void> {
       const prose = stripHeading(s.prose!)
       const res = await structured<{ summary: string; entries: ExtractedEntry[] }>({
         lane,
-        system: [{ type: 'text', text: SETTLE_SYSTEM }],
+        system: jobSystem(SETTLE_SYSTEM),
         user: `${await bibleText()}\n\n<scene id="${s.id}" title="${s.title}">\n<prose>\n${prose}\n</prose>\n</scene>\n\n<task>Summarise the scene, and list the facts it establishes: character facts, events with their story time, movements between places, places, and world rules or objects. Quote each one exactly. Keep subjects consistent with names already in the bible.</task>`,
         schema: SETTLE_SCHEMA,
         background: true,
@@ -153,7 +154,7 @@ async function checkOutline(chapterId: string): Promise<void> {
   try {
     const res = await structured<{ diverged: Array<{ outline_quote: string; reason: string; replacement: string; later_quotes: string[] }> }>({
       lane: { ...(await loadSettings()).lanes.planner, effort: 'low' },
-      system: [{ type: 'text', text: 'You compare a novel’s outline with what was actually written. A stale outline is normal; report only clear divergences, never small differences of detail.' }],
+      system: jobSystem('You compare a novel’s outline with what was actually written. A stale outline is normal; report only clear divergences, never small differences of detail.'),
       user: `<outline>\n${outline}\n</outline>\n\n<chapter number="${chapter.number}" title="${chapter.title}">\n${sums.join('\n')}\n</chapter>\n\n<task>Does the outline entry for this chapter still describe what was written? List only entries this chapter clearly departs from.</task>`,
       schema: OUTLINE_SCHEMA,
       background: true,
@@ -231,7 +232,7 @@ async function checkDirectionChanges(): Promise<void> {
   try {
     const res = await structured<{ verdicts: Array<{ scene_id: string; fits: boolean; reason: string; quote: string }> }>({
       lane: (await loadSettings()).lanes.planner,
-      system: [{ type: 'text', text: 'A direction page of the novel changed. For each scene written before the change, say whether it still fits, with a one-sentence reason. Be honest: most scenes usually still fit.' }],
+      system: jobSystem('A direction page of the novel changed. For each scene written before the change, say whether it still fits, with a one-sentence reason. Be honest: most scenes usually still fit.'),
       user: `${changed.map((c) => `<changed page="${c.name}">\n<before>\n${c.before}\n</before>\n<after>\n${c.after}\n</after>\n</changed>`).join('\n')}\n\n${await directionText()}\n\n<scenes>\n${written.map((s) => `<scene id="${s.id}" title="${s.title}">\n${summaries[s.id]?.text ?? ''}\n<prose>\n${stripHeading(s.prose!)}\n</prose>\n</scene>`).join('\n')}\n</scenes>`,
       schema: VERDICT_SCHEMA,
       background: true,

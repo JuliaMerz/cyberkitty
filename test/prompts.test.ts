@@ -38,3 +38,12 @@ describe('writer prompt', () => {
     expect(p.system.at(-1)?.text).toContain('has not filled in the style page')
   })
 })
+
+describe('shared briefing', () => {
+  it('opens the writer system prompt and every job prompt', async () => {
+    const { CYBERKITTY_BRIEFING, jobSystem } = await import('@shared/briefing')
+    const { writerSystem } = await import('@shared/prompts')
+    expect(writerSystem('x')[0].text.startsWith(CYBERKITTY_BRIEFING)).toBe(true)
+    expect(jobSystem('Do the job.')[0].text).toBe(`${CYBERKITTY_BRIEFING}\n\nDo the job.`)
+  })
+})

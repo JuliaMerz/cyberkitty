@@ -1,6 +1,7 @@
 // Diagrams: Claude draws a map, floor plan, family tree or relationship web
 // from the bible, as SVG. Optional; a story set in one room needs none.
 
+import { jobSystem } from '@shared/briefing'
 import type { Diagram } from '@shared/types'
 import { bibleText, directionText } from './context'
 import { structured } from './gateway'
@@ -36,7 +37,7 @@ export function sanitizeSvg(svg: string): string {
 export async function drawDiagram(request: string): Promise<Diagram> {
   const res = await structured<{ title: string; kind: Diagram['kind']; svg: string }>({
     lane: (await loadSettings()).lanes.planner,
-    system: [{ type: 'text', text: 'You draw clear, quiet diagrams for a novelist from their story bible. Draw only what the bible supports. Label everything.' }],
+    system: jobSystem('You draw clear, quiet diagrams for a novelist from their story bible. Draw only what the bible supports. Label everything.'),
     user: `${await directionText()}\n\n${await bibleText()}\n\n<request>${request}</request>`,
     schema: SCHEMA,
     maxTokens: 32000,

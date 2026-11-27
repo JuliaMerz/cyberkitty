@@ -51,6 +51,10 @@ Stored with Electron `safeStorage` (OS keychain) in the user-data folder, never 
 
 `isomorphic-git` with a separate git directory (`.cyberkitty/history.git`) and the book folder as work tree, so an author's own git repository is never touched. Snapshots are taken on open, when work settles (no typing for `settleSeconds`, default 30), before each draft, before and after a change merges, and on quit. Only Markdown files and sidecars are tracked. Restoring writes the old files through the work tree (never moving the branch) between two snapshots, so a restore is itself undoable.
 
+## Prompts
+
+Every Claude call starts with one shared briefing (`src/shared/briefing.ts`): what CyberKitty is, who does what (author, planner, writer, background), how the book is laid out, the marks, and the rules. Each agent's own instructions follow it: the planner's in `planner.ts`, the writer's in `prompts.ts`, and each background job's beside its code (`jobSystem`). The planner leads on direction (it puts concrete proposals on direction pages, chapter intents and notes as suggestions) and delegates prose to the writer through briefs.
+
 ## The planner
 
 - One long-lived agent session per book (`src/main/planner.ts`). System blocks: the instructions, then a snapshot of the whole book (direction pages, bible, outline, chapter intents, summaries, notes and prose with ids, open alerts) plus the tail of earlier chat, each with a 1-hour cache breakpoint. The conversation tail is cached automatically.

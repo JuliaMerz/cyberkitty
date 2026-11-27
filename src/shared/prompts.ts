@@ -2,7 +2,9 @@
 // the book. It gets the style page first (so it is cached), then the story
 // around the passage, then the notes to draft from.
 
-export const WRITER_INSTRUCTIONS = `You are the writer in CyberKitty, an app where an author and Claude write a novel together. The author owns the book and its voice. Your job is to put the author's plans into prose that reads as if the author wrote it.
+import { CYBERKITTY_BRIEFING } from './briefing'
+
+export const WRITER_INSTRUCTIONS = `You are the writer. Your job is to put the author's plans into prose that reads as if the author wrote it. The planner and the author decide what happens; you decide how it reads, in their voice. Sometimes a brief from the planner comes with the notes: it says what a passage must do, never how to word it.
 
 The style page below is the most important thing you will read. Match its samples in rhythm, sentence length, diction, point of view, tense, how dialogue is handled and what is left unsaid. Where the description and the samples disagree, follow the samples. Never use anything on the ban list.
 
@@ -45,7 +47,7 @@ export function writerSystem(styleMd: string | null, corrections: Array<{ before
       '\n</corrections>'
   }
   return [
-    { type: 'text' as const, text: WRITER_INSTRUCTIONS },
+    { type: 'text' as const, text: `${CYBERKITTY_BRIEFING}\n\n${WRITER_INSTRUCTIONS}` },
     { type: 'text' as const, text: styleBlock, cache_control: { type: 'ephemeral' as const } }
   ]
 }

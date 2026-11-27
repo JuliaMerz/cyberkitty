@@ -4,6 +4,7 @@
 // since the last scan. Every finding must quote both sides word for word, and
 // the app checks the quotes exist before showing anything.
 
+import { jobSystem } from '@shared/briefing'
 import { createHash } from 'node:crypto'
 import type { DocRef, PageName, SceneFile } from '@shared/types'
 import { bibleText, directionText, manuscriptText } from './context'
@@ -87,7 +88,7 @@ export async function scan(opts: { force?: boolean } = {}): Promise<void> {
       : ''
     const res = await structured<{ findings: Array<{ kind: 'continuity' | 'timeline' | 'direction' | 'thread'; title: string; explanation: string; fix: string; side_a: Side; side_b: Side }> }>({
       lane: (await loadSettings()).lanes.background,
-      system: [{ type: 'text', text: SCAN_SYSTEM }],
+      system: jobSystem(SCAN_SYSTEM),
       user: `${await directionText()}\n\n${await bibleText()}\n\n${manuscript}\n\n${dismissedXml}\n\n<task>List the findings.</task>`,
       schema: SCAN_SCHEMA,
       maxTokens: 32000,

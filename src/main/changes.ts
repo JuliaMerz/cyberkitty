@@ -4,6 +4,7 @@
 // merge, and the book is snapshotted before and after, so the whole change is
 // one undo.
 
+import { jobSystem } from '@shared/briefing'
 import { makeAnchor } from '@shared/anchors'
 import { writerSystem } from '@shared/prompts'
 import { cleanDraft } from '@shared/notes'
@@ -50,7 +51,7 @@ export async function proposeChange(chapterId: string, request: string): Promise
   const lane = { ...(await loadSettings()).lanes.planner, effort: 'high' as const }
   const res = await structured<{ title: string; spec: string; scenes: string[]; effects: Array<{ scene_id: string; quote: string; note: string }> }>({
     lane,
-    system: [{ type: 'text', text: 'You write change specs for a novel in CyberKitty. A change spec is short and concrete. It names what changes, scene by scene, and what must not change. It never contains prose for the book; the writer writes that from the spec.' }],
+    system: jobSystem('You write change specs for a novel in CyberKitty. A change spec is short and concrete. It names what changes, scene by scene, and what must not change. It never contains prose for the book; the writer writes that from the spec.'),
     user: `${await bookSnapshot()}\n\n<chapter id="${chapterId}" title="${chapter.title}" />\n\n<request>\n${request}\n</request>`,
     schema: SPEC_SCHEMA,
     fakeKey: 'change'
