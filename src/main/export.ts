@@ -4,9 +4,11 @@
 // in reading order in one file.
 //
 // - Manuscript: the title, each chapter's heading, then its scenes' prose in
-//   order, with a scene break between scenes. No notes, no scene titles.
-// - Notes and planning: the book pages, then each chapter's intent and each
-//   scene's notes under the scene's title.
+//   order, with a scene break between scenes. No notes of any kind, no scene
+//   titles.
+// - Notes and planning: the book pages, the Notes section, then each
+//   chapter's intent and each scene's notes under the scene's title, with
+//   woven notes in their place.
 // - Story bible: the planned page, then the bible's Markdown files.
 
 import { BIBLE_DIR, BIBLE_FILES } from '@shared/biblemd'
@@ -64,14 +66,43 @@ export async function notesMarkdown(b: Book): Promise<string> {
   }
   const planned = nest(await b.readPage('bible.md'), 1)
   if (planned && planned.replace(/^-\s*$/gm, '').trim()) out.push('## Planned bible', planned)
-  for (const c of tree.chapters) {
+  const notes = await b.notes()
+  const note = (id: string, level: number): string[] => {
+    const n = notes.find((x) => x.id === id)
+    if (!n) return []
+    const body = nest(n.text, level - 1)
+    return [`${'#'.repeat(level)} Note: ${n.title}`, ...(body ? [body] : [])]
+  }
+  if (tree.notes.length) {
+    out.push('## Notes')
+    let folder = 'notes'
+    for (const n of tree.notes) {
+      if (n.folder !== folder) {
+        folder = n.folder
+        out.push(`### ${folder.slice('notes/'.length)}`)
+      }
+      const body = nest(notes.find((x) => x.id === n.id)?.text ?? '', folder === 'notes' ? 2 : 3)
+      out.push(`${folder === 'notes' ? '###' : '####'} ${n.title}`, ...(body ? [body] : []))
+    }
+  }
+  for (const id of tree.order) {
+    const c = tree.chapters.find((x) => x.id === id)
+    if (!c) {
+      out.push(...note(id, 2))
+      continue
+    }
     out.push(`## Chapter ${c.number}: ${c.title}`)
     const intent = nest((await b.readText(`${c.id}/chapter.md`)) ?? '', 1)
     if (intent) out.push(intent)
-    for (const s of scenes.filter((x) => x.chapterId === c.id)) {
+    for (const item of c.order) {
+      const s = scenes.find((x) => x.id === item)
+      if (!s) {
+        out.push(...note(item, 3))
+        continue
+      }
       out.push(`### ${s.title}`)
-      const notes = nest(s.notes ?? '', 2)
-      if (notes) out.push(notes)
+      const sceneNotes = nest(s.notes ?? '', 2)
+      if (sceneNotes) out.push(sceneNotes)
     }
   }
   return join(out)

@@ -138,7 +138,7 @@ export function DocEditor(props: Props): React.JSX.Element {
 
     const hooks = editorHooks.of({
       attach: (v, from, to) => {
-        appRef.current.attach({ ref: docRef, quote: v.state.sliceDoc(from, to), label: refLabel(docRef, appRef.current.sceneTitle) })
+        appRef.current.attach({ ref: docRef, quote: v.state.sliceDoc(from, to), label: refLabel(docRef, appRef.current) })
       },
       openAlert: (id) => appRef.current.navigate({ kind: 'alerts', id }),
       alternatives: (v, from, to) => {

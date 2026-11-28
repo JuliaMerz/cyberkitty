@@ -12,7 +12,7 @@
 //    logged right after it;
 // 4. a request that comes back as failed is logged as failed.
 
-import type { AlternativesRequest, BibleEntry, ChangeSpec, DocRef, DraftRequest, RewriteRequest, Settings } from '@shared/types'
+import type { AlternativesRequest, BibleEntry, ChangeSpec, DocRef, DraftRequest, NotePlace, RewriteRequest, Settings } from '@shared/types'
 import { requireBook, state } from './state'
 import { bibleStore, changeStore, diagramStore } from './stores'
 
@@ -34,10 +34,30 @@ export async function sceneTitle(sceneId: string): Promise<string> {
   return (await requireBook().scenes()).find((s) => s.id === sceneId)?.title ?? sceneId
 }
 
+export async function noteLabel(id: string): Promise<string> {
+  const n = await requireBook().readNote(id)
+  return `the note “${n?.title ?? id.split('/').pop()}” (${id})`
+}
+
 export async function refLabelFor(ref: DocRef): Promise<string> {
+  if (ref.kind === 'note') return noteLabel(ref.id)
   if (ref.kind === 'page') return `the ${ref.name} page`
   if (ref.kind === 'chapter') return `the intent of ${ref.chapterId}`
   return `the ${ref.file} of “${await sceneTitle(ref.sceneId)}” (${ref.sceneId})`
+}
+
+/** Where a note is going, in words. */
+async function placeWords(place: NotePlace): Promise<string> {
+  if (place.where === 'notes') return place.folder && place.folder !== 'notes' ? `the Notes section, in ${place.folder.slice('notes/'.length)}` : 'the Notes section'
+  const where = place.chapterId ? `among the scenes of ${await chapterLabel(place.chapterId)}` : 'among the chapters'
+  if (place.after === null) return `${where}, first`
+  const tree = await requireBook().tree()
+  const after =
+    tree.chapters.find((c) => c.id === place.after)?.title ??
+    tree.chapters.flatMap((c) => c.scenes).find((s) => s.id === place.after)?.title ??
+    [...tree.notes, ...tree.manuscriptNotes, ...tree.chapters.flatMap((c) => c.notes)].find((n) => n.id === place.after)?.title ??
+    place.after
+  return `${where}, after “${after}”`
 }
 
 async function chapterLabel(chapterId: string): Promise<string> {
@@ -85,6 +105,10 @@ export const HANDLED: Record<string, ActionEntry> = {
   'book:create-chapter': { quiet: 'the new chapter is logged as a new document', flush: true },
   'book:create-scene': { quiet: 'the new scene is logged as a new document', flush: true },
   'book:rename-scene': { quiet: 'logged as an edit to the scene heading', flush: true },
+  'book:create-note': { quiet: 'the new note is logged as a new document', flush: true },
+  'book:move-note': { flush: true, log: async (id: string, place: NotePlace) => `The author moved ${await noteLabel(id)} to ${await placeWords(place)}.` },
+  'book:note-to-scene': { flush: true, log: async (id: string) => `The author turned ${await noteLabel(id)} into a scene, in the same place: its text is now that scene's notes, ready for beats and drafting.` },
+  'book:scene-to-note': { flush: true, log: async (sceneId: string) => `The author turned the scene “${await sceneTitle(sceneId)}” (${sceneId}), which had no prose, into a note in the same place.` },
 
   'doc:read': { quiet: READ },
   'doc:write': { quiet: 'edits are compared and logged in batches, not per save' },

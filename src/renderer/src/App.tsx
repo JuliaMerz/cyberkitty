@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { banList } from '@shared/tells'
-import type { BookTree, JobStatus, NavTarget, PassageRef, Place, Settings, SpendSummary } from '@shared/types'
+import type { BookTree, JobStatus, NavTarget, NotePlace, NoteRef, PassageRef, Place, Settings, SpendSummary } from '@shared/types'
 import { AppCtx, type AppApi } from './appContext'
 import { Rail } from './components/Rail'
 import { ScenePage } from './components/ScenePage'
 import { SettingsPage } from './components/SettingsPage'
 import { DocPage } from './components/DocPage'
 import { ChapterPage } from './components/ChapterPage'
+import { NotePage } from './components/NotePage'
 import { BiblePage, TimelinePage } from './components/BiblePage'
 import { AlertsPage } from './components/AlertsPage'
 import { ChangePage } from './components/ChangePage'
@@ -38,9 +39,29 @@ function store(key: string, value: unknown): void {
   }
 }
 
+export function allNotes(tree: BookTree): NoteRef[] {
+  return [...tree.notes, ...tree.manuscriptNotes, ...tree.chapters.flatMap((c) => c.notes)]
+}
+
+/** Where File > New Note puts a note: after the scene or note the author is on, or in the Notes section. */
+function newNotePlace(tree: BookTree, route: Route | null): { place: NotePlace; label: string } {
+  const chapter = route?.kind === 'scene' ? tree.chapters.find((c) => c.scenes.some((s) => s.id === route.sceneId)) : route?.kind === 'note' ? tree.chapters.find((c) => c.notes.some((n) => n.id === route.id)) : undefined
+  if (route?.kind === 'scene' && chapter) return { place: { where: 'manuscript', chapterId: chapter.id, after: route.sceneId }, label: `New note after “${chapter.scenes.find((s) => s.id === route.sceneId)?.title}”` }
+  if (route?.kind === 'note' && chapter) return { place: { where: 'manuscript', chapterId: chapter.id, after: route.id }, label: `New note after “${chapter.notes.find((n) => n.id === route.id)?.title}”` }
+  if (route?.kind === 'chapter') {
+    const c = tree.chapters.find((x) => x.id === route.chapterId)
+    if (c) return { place: { where: 'manuscript', chapterId: c.id, after: c.order.at(-1) ?? null }, label: `New note at the end of ${c.title}` }
+  }
+  return { place: { where: 'notes' }, label: 'New note in Notes' }
+}
+
 function currentChapter(tree: BookTree, route: Route | null): string | undefined {
   if (route?.kind === 'chapter') return route.chapterId
   if (route?.kind === 'scene') return tree.chapters.find((c) => c.scenes.some((s) => s.id === route.sceneId))?.id
+  if (route?.kind === 'note') {
+    const c = tree.chapters.find((x) => x.notes.some((n) => n.id === route.id))
+    if (c) return c.id
+  }
   return tree.chapters.at(-1)?.id
 }
 
@@ -84,7 +105,7 @@ export function App(): React.JSX.Element {
   const [chatFocus, setChatFocus] = useState(0)
   const [ban, setBan] = useState<string[]>([])
   const [job, setJob] = useState<JobStatus | null>(null)
-  const [prompt, setPrompt] = useState<{ kind: 'chapter' } | { kind: 'scene'; chapterId: string } | null>(null)
+  const [prompt, setPrompt] = useState<{ kind: 'chapter' } | { kind: 'scene'; chapterId: string } | { kind: 'note'; place: NotePlace; label: string } | null>(null)
   const routeRef = useRef<Route | null>(null)
   routeRef.current = route
   const treeRef = useRef<BookTree | null | undefined>(undefined)
@@ -120,6 +141,7 @@ export function App(): React.JSX.Element {
         if (!t) return
         if (cmd === 'close-book') return void closeBook()
         if (cmd === 'new-chapter') return setPrompt({ kind: 'chapter' })
+        if (cmd === 'new-note') return setPrompt({ kind: 'note', ...newNotePlace(t, r) })
         const current = currentChapter(t, r)
         if (cmd === 'new-scene') return setPrompt(current ? { kind: 'scene', chapterId: current } : { kind: 'chapter' })
         if (cmd === 'import' && current) void ck.importMarkdownDialog(current).then((x) => x && setTree(x))
@@ -140,7 +162,7 @@ export function App(): React.JSX.Element {
 
   const navigate = useCallback((t: NavTarget) => {
     setRoute(t)
-    if ((t.kind === 'scene' || t.kind === 'page') && t.quote) {
+    if ((t.kind === 'scene' || t.kind === 'page' || t.kind === 'note') && t.quote) {
       setReveal({ quote: t.quote, file: t.kind === 'scene' && t.file === 'notes' ? 'notes' : 'prose', n: Date.now() })
     } else setReveal(null)
   }, [])
@@ -154,6 +176,10 @@ export function App(): React.JSX.Element {
       const c = tree.chapters.find((x) => x.id === route.chapterId)
       setPlace({ label: c ? `Chapter ${c.number}: ${c.title}` : 'Chapter', page: 'chapter', chapterId: route.chapterId })
     } else if (route.kind === 'page') setPlace({ label: route.name.replace('.md', '').replace(/^./, (x) => x.toUpperCase()), page: 'page', pageName: route.name })
+    else if (route.kind === 'note') {
+      const n = allNotes(tree).find((x) => x.id === route.id)
+      setPlace({ label: `${n?.title ?? 'a note'} (a note)`, page: 'note', noteId: route.id, chapterId: tree.chapters.find((c) => c.id === n?.folder)?.id })
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [route])
 
@@ -161,6 +187,8 @@ export function App(): React.JSX.Element {
     (id: string) => tree?.chapters.flatMap((c) => c.scenes).find((s) => s.id === id)?.title ?? id.split('/').pop() ?? id,
     [tree]
   )
+
+  const noteTitle = useCallback((id: string) => (tree ? allNotes(tree).find((n) => n.id === id)?.title : undefined) ?? id.split('/').pop() ?? id, [tree])
 
   const api: AppApi | null = useMemo(
     () =>
@@ -175,10 +203,11 @@ export function App(): React.JSX.Element {
             setPlace,
             settings,
             ban,
-            sceneTitle
+            sceneTitle,
+            noteTitle
           }
         : null,
-    [navigate, settings, ban, sceneTitle]
+    [navigate, settings, ban, sceneTitle, noteTitle]
   )
 
   async function closeBook(): Promise<void> {
@@ -199,6 +228,12 @@ export function App(): React.JSX.Element {
     const r = await ck.createScene(chapterId, title)
     setTree(r.tree)
     setRoute({ kind: 'scene', sceneId: r.sceneId })
+  }
+
+  async function newNote(title: string, place: NotePlace): Promise<void> {
+    const r = await ck.createNote(title, place)
+    setTree(r.tree)
+    setRoute({ kind: 'note', id: r.noteId })
   }
 
   function opened(t: BookTree | null): void {
@@ -243,12 +278,16 @@ export function App(): React.JSX.Element {
         view={settings.sceneView}
         reveal={reveal}
         onViewChange={async (v) => setSettings(await ck.setSettings({ sceneView: v }))}
+        canBeNote={!allScenes.find((s) => s.id === route.sceneId)?.hasProse}
+        onTree={setTree}
       />
     )
   } else if (route?.kind === 'chapter' && tree.chapters.some((c) => c.id === route.chapterId)) {
     page = <ChapterPage key={route.chapterId} chapter={tree.chapters.find((c) => c.id === route.chapterId)!} onTree={(t) => t && setTree(t)} />
   } else if (route?.kind === 'page') {
     page = <DocPage key={route.name} name={route.name} reveal={reveal} />
+  } else if (route?.kind === 'note' && allNotes(tree).some((n) => n.id === route.id)) {
+    page = <NotePage key={route.id} note={allNotes(tree).find((n) => n.id === route.id)!} tree={tree} reveal={reveal} onTree={setTree} />
   } else if (route?.kind === 'bible') {
     page = <BiblePage focusId={route.id} />
   } else if (route?.kind === 'timeline') {
@@ -273,7 +312,7 @@ export function App(): React.JSX.Element {
 
   // Pages without an editor still tell the chat where the author is.
   const pagePlace: Place | null =
-    route && route.kind !== 'scene' && route.kind !== 'page' && route.kind !== 'chapter'
+    route && route.kind !== 'scene' && route.kind !== 'page' && route.kind !== 'chapter' && route.kind !== 'note'
       ? { label: route.kind === 'bible' ? 'Story bible' : route.kind[0].toUpperCase() + route.kind.slice(1), page: route.kind === 'diagrams' ? 'diagrams' : route.kind }
       : null
 
@@ -292,6 +331,7 @@ export function App(): React.JSX.Element {
           }}
           onNewChapter={(title) => void newChapter(title)}
           onNewScene={(chapterId, title) => void newScene(chapterId, title)}
+          onNewNote={(title, place) => void newNote(title, place)}
           onNewBook={() => void ck.createBookDialog().then(opened)}
           onOpenBook={() => void ck.openBookDialog().then(opened)}
           onCloseBook={() => void closeBook()}
@@ -319,12 +359,13 @@ export function App(): React.JSX.Element {
       </div>
       {prompt && (
         <NamePrompt
-          label={prompt.kind === 'chapter' ? 'New chapter' : `New scene in ${tree.chapters.find((c) => c.id === prompt.chapterId)?.title ?? 'this chapter'}`}
+          label={prompt.kind === 'chapter' ? 'New chapter' : prompt.kind === 'note' ? prompt.label : `New scene in ${tree.chapters.find((c) => c.id === prompt.chapterId)?.title ?? 'this chapter'}`}
           onCancel={() => setPrompt(null)}
           onDone={(title) => {
             const p = prompt
             setPrompt(null)
             if (p.kind === 'chapter') void newChapter(title)
+            else if (p.kind === 'note') void newNote(title, p.place)
             else void newScene(p.chapterId, title)
           }}
         />

@@ -12,6 +12,7 @@ Vertical slices, each usable on its own. The spec is the source of truth for beh
 | 6 | **Consistency scan and alerts.** Whole-book scan on leaving a chapter, on idle and on demand; quotes verified; dismissals stick to the pair; todos; proposed style samples | Built |
 | 7 | **Chapter change specs and change review.** Spec, approve, rewrite against a working copy, paragraph diffs with accept or keep per change, accept all lands as updated, one-step undo | Built |
 | 8 | **Voice, diagrams, ghost text, import.** | Diagrams, ghost text (setting, off by default) and Markdown import built. Voice is not built yet |
+| 9 | **Notes for scratch work.** A Notes section, notes woven in among chapters and scenes, moving them, turning a note into a scene and back; kept out of counts, the bible, summaries, the scan and the manuscript export; the planner can start one | Built |
 
 ## Not in v1 yet
 

@@ -25,6 +25,7 @@ export async function sideLabel(ref: DocRef): Promise<string> {
   const b = requireBook()
   if (ref.kind === 'page') return ref.name.replace(/\.md$/, '').replace(/^./, (c) => c.toUpperCase())
   if (ref.kind === 'chapter') return (await b.tree()).chapters.find((c) => c.id === ref.chapterId)?.title ?? 'Chapter'
+  if (ref.kind === 'note') return `${(await b.readNote(ref.id))?.title ?? 'Note'}, a note`
   const s = (await b.scenes()).find((x) => x.id === ref.sceneId)
   return `${s?.title ?? 'Scene'}${ref.file === 'notes' ? ', notes' : ''}`
 }

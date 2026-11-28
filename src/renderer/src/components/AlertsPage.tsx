@@ -13,6 +13,7 @@ const ck = window.ck
 function navFor(ref: DocRef, quote: string): NavTarget {
   if (ref.kind === 'scene') return { kind: 'scene', sceneId: ref.sceneId, file: ref.file, quote }
   if (ref.kind === 'chapter') return { kind: 'chapter', chapterId: ref.chapterId }
+  if (ref.kind === 'note') return { kind: 'note', id: ref.id, quote }
   return { kind: 'page', name: ref.name, quote }
 }
 

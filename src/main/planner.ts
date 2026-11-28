@@ -7,15 +7,17 @@
 
 import type { BetaContentBlockParam, BetaMessageParam, BetaToolUnion } from '@anthropic-ai/sdk/resources/beta/messages/messages'
 import { z } from 'zod'
+import { makeAnchor, paragraphs } from '@shared/anchors'
 import { CYBERKITTY_BRIEFING } from '@shared/briefing'
 import { linkFor } from '@shared/links'
-import type { BibleType, ChatEntry, DocRef, PageName, PassageRef, Place, SceneFile } from '@shared/types'
+import type { BibleType, ChatEntry, DocRef, MarkRecord, PageName, PassageRef, Place, SceneFile } from '@shared/types'
 import { agentTurn, describeError, isAbort, isBadRequest, type SystemBlocks } from './gateway'
 import { pendingChat, reviewStateText } from './context'
 import { closeBatch, eventsSince, lastSeq, logEvent, renderBatches } from './eventlog'
 import { bookContextFor, COLD_MS } from './snapshot'
 import { loadSettings } from './settings'
-import { newId, requireBook, send } from './state'
+import { addMarks, newId, requireBook, send } from './state'
+import { isNoteId } from './project'
 import { chatStore } from './stores'
 import { locate, suggest } from './suggest'
 import { rewrite, runDraft } from './writer'
@@ -34,7 +36,7 @@ What you have:
 - Your tools act on the page as described in the guide above. Quote text exactly as it appears when a tool needs a quote; tool results hand back ck: links to what you made, which you can put in your reply.
 
 How the division of work is set up:
-- Planning text (direction pages, the outline, chapter intents, scene notes, the style page, bible.md) can take your own words directly, through suggest_edit and suggest_insert.
+- Planning text (direction pages, the outline, chapter intents, scene notes, the style page, bible.md, the author's notes) can take your own words directly, through suggest_edit and suggest_insert. start_note starts a new note in the Notes section, for something the author asks to keep.
 - Prose for the book goes through the writer, which carries the author's style page and their past corrections. You give it a brief with rewrite_prose or draft_prose: what the passage must do, the beats, the facts that matter, pinned lines, what to avoid. The prose tools are the only way to put prose on the page.
 - Authors differ in how much they want Claude to lead. Some want proposals on every page; some want a quiet second reader. Read what this author asks for and how they respond to what you offer, and follow their lead.
 
@@ -50,12 +52,13 @@ const HELP_LEVEL: Record<string, string> = {
 
 const docSchema = {
   type: 'object',
-  description: 'Which document: a scene file (scene_id and file), a chapter intent (chapter_id), or a book page (page).',
+  description: 'Which document: a scene file (scene_id and file), a chapter intent (chapter_id), a book page (page), or a note (note_id, its path as in the snapshot).',
   properties: {
     scene_id: { type: 'string' },
     file: { type: 'string', enum: ['notes', 'prose'] },
     chapter_id: { type: 'string' },
-    page: { type: 'string', enum: PAGES }
+    page: { type: 'string', enum: PAGES },
+    note_id: { type: 'string' }
   }
 }
 
@@ -63,14 +66,19 @@ const zDoc = z.object({
   scene_id: z.string().optional(),
   file: z.enum(['notes', 'prose']).optional(),
   chapter_id: z.string().optional(),
-  page: z.enum(PAGES as [PageName, ...PageName[]]).optional()
+  page: z.enum(PAGES as [PageName, ...PageName[]]).optional(),
+  note_id: z.string().optional()
 })
 
 function toRef(d: z.infer<typeof zDoc>): DocRef {
+  if (d.note_id) {
+    if (!isNoteId(d.note_id)) throw new Error(`${d.note_id} is not a note. Notes are under notes/, or end in .note.md in the manuscript.`)
+    return { kind: 'note', id: d.note_id }
+  }
   if (d.scene_id) return { kind: 'scene', sceneId: d.scene_id, file: (d.file ?? 'notes') as SceneFile }
   if (d.chapter_id) return { kind: 'chapter', chapterId: d.chapter_id }
   if (d.page) return { kind: 'page', name: d.page }
-  throw new Error('Name a document: scene_id with file, chapter_id, or page.')
+  throw new Error('Name a document: scene_id with file, chapter_id, page, or note_id.')
 }
 
 export const TOOLS: BetaToolUnion[] = [
@@ -81,7 +89,7 @@ export const TOOLS: BetaToolUnion[] = [
   },
   {
     name: 'suggest_edit',
-    description: 'Suggest replacing an exact quote in notes, a chapter intent or a book page with new text. Not for prose: use rewrite_prose.',
+    description: 'Suggest replacing an exact quote in scene notes, a chapter intent, a book page or a note with new text. Not for prose: use rewrite_prose.',
     input_schema: {
       type: 'object',
       properties: { doc: docSchema, quote: { type: 'string' }, replacement: { type: 'string' }, note: { type: 'string', description: 'Why, in a few words. Shown on hover.' } },
@@ -90,7 +98,7 @@ export const TOOLS: BetaToolUnion[] = [
   },
   {
     name: 'suggest_insert',
-    description: 'Suggest new lines after an exact quote (or at the end when after_quote is empty) in notes, a chapter intent or a book page. Use for proposed beats, outline entries, page sections. Not for prose: use draft_prose.',
+    description: 'Suggest new lines after an exact quote (or at the end when after_quote is empty) in scene notes, a chapter intent, a book page or a note. Use for proposed beats, outline entries, page sections. Not for prose: use draft_prose.',
     input_schema: {
       type: 'object',
       properties: { doc: docSchema, after_quote: { type: 'string' }, text: { type: 'string' }, note: { type: 'string' } },
@@ -113,6 +121,16 @@ export const TOOLS: BetaToolUnion[] = [
       type: 'object',
       properties: { scene_id: { type: 'string' }, after_quote: { type: 'string' }, beats: { type: 'string' }, brief: { type: 'string' } },
       required: ['scene_id', 'after_quote', 'beats', 'brief']
+    }
+  },
+  {
+    name: 'start_note',
+    description:
+      'Start a new note in the Notes section, holding your text. It shows in the rail under Notes, and the text is shaded unreviewed, like any of Claude’s words, until the author reviews it. Returns a link to it.',
+    input_schema: {
+      type: 'object',
+      properties: { title: { type: 'string' }, text: { type: 'string', description: 'The note’s Markdown, without a title heading.' } },
+      required: ['title', 'text']
     }
   },
   {
@@ -163,7 +181,8 @@ export const TOOLS: BetaToolUnion[] = [
 
 type ToolOut = { text: string; activity?: string }
 
-async function runTool(name: string, raw: unknown, chatId: string, signal: AbortSignal): Promise<ToolOut> {
+/** One planner tool call. Exported for tests. */
+export async function runTool(name: string, raw: unknown, chatId: string, signal: AbortSignal): Promise<ToolOut> {
   const input = (raw ?? {}) as Record<string, unknown>
   switch (name) {
     case 'read_doc': {
@@ -211,6 +230,21 @@ async function runTool(name: string, raw: unknown, chatId: string, signal: Abort
       const rec = await suggest({ ref, quote: anchorQuote, replacement: res.text, insert: 'after', note: 'drafted from chat', source: 'rewrite', chatId })
       return { text: `The writer's draft is on the page as a suggestion. Link: ${linkFor(ref, rec.anchor.quote.slice(0, 60))}`, activity: `the writer drafted a passage in ${await label(ref)}` }
     }
+    case 'start_note': {
+      const p = z.object({ title: z.string().min(1), text: z.string() }).parse(input)
+      const b = requireBook()
+      const body = `${p.text.trim()}\n`
+      const id = await b.createNote(p.title.trim(), { where: 'notes' }, body)
+      const ref: DocRef = { kind: 'note', id }
+      const text = (await b.readDoc(ref)).text ?? ''
+      const at = new Date().toISOString()
+      const start = text.length - body.length
+      const marks: MarkRecord[] = paragraphs(text)
+        .filter((x) => x.from >= start && x.text.trim())
+        .map((x) => ({ id: newId('m'), kind: 'unreviewed', file: 'prose', anchor: makeAnchor(text, x.from, x.to), origin: { source: 'chat', note: 'written in the chat', at, chatId } }))
+      await addMarks(ref, marks)
+      return { text: `Started the note “${p.title.trim()}” (${id}). Link: ${linkFor(ref)}`, activity: `started a note: ${p.title.trim()}` }
+    }
     case 'add_bible_idea': {
       const p = z.object({ type: z.enum(['character', 'event', 'movement', 'place', 'world']), subject: z.string(), text: z.string(), why: z.string() }).parse(input)
       const e = await addIdea(p.type as BibleType, p.subject, p.text, p.why, chatId)
@@ -220,7 +254,9 @@ async function runTool(name: string, raw: unknown, chatId: string, signal: Abort
       const p = z
         .object({ kind: z.enum(['continuity', 'timeline', 'direction', 'thread']), title: z.string(), explanation: z.string(), fix: z.string().optional(), sides: z.array(z.object({ doc: zDoc, quote: z.string() })) })
         .parse(input)
-      const a = await fileAlert({ kind: p.kind, title: p.title, explanation: p.explanation, fix: p.fix, sides: p.sides.map((s) => ({ ref: toRef(s.doc), quote: s.quote })) })
+      const sides = p.sides.map((s) => ({ ref: toRef(s.doc), quote: s.quote }))
+      if (sides.some((s) => s.ref.kind === 'note')) throw new Error('Alerts are for the book itself. A note is the author’s scratch work and is allowed to be wrong or to disagree with the book, so it cannot be one side of an alert; mention it in the chat instead.')
+      const a = await fileAlert({ kind: p.kind, title: p.title, explanation: p.explanation, fix: p.fix, sides })
       return a ? { text: `Filed. Link: ${linkFor({ kind: 'alert', id: a.id })}`, activity: `filed an alert: ${p.title}` } : { text: 'Not filed: the quotes were not found in the text, or the author dismissed this exact pair before.' }
     }
     case 'add_todo': {
@@ -246,6 +282,7 @@ async function runTool(name: string, raw: unknown, chatId: string, signal: Abort
 async function label(ref: DocRef): Promise<string> {
   if (ref.kind === 'page') return ref.name.replace(/\.md$/, '')
   if (ref.kind === 'chapter') return (await requireBook().tree()).chapters.find((c) => c.id === ref.chapterId)?.title ?? 'the chapter'
+  if (ref.kind === 'note') return `the note “${(await requireBook().readNote(ref.id))?.title ?? ref.id}”`
   const s = (await requireBook().scenes()).find((x) => x.id === ref.sceneId)
   return `${s?.title ?? 'the scene'} ${ref.file}`
 }
@@ -324,6 +361,7 @@ function placeXml(place: Place): string {
   if (place.file) attrs.push(`file="${place.file}"`)
   if (place.chapterId) attrs.push(`chapter_id="${place.chapterId}"`)
   if (place.pageName) attrs.push(`page_name="${place.pageName}"`)
+  if (place.noteId) attrs.push(`note_id="${place.noteId}"`)
   const inner = [place.paragraph ? `<paragraph>${place.paragraph}</paragraph>` : '', place.selection ? `<selection>${place.selection}</selection>` : '']
     .filter(Boolean)
     .join('\n')
@@ -386,7 +424,7 @@ async function turn(text: string, place: Place, passages: PassageRef[]): Promise
     const stopped = s.stopped
     s.stopped = undefined
     const passageXml = passages.length
-      ? `<attached_passages>\n${passages.map((p) => `<passage doc="${p.ref.kind === 'scene' ? `${p.ref.sceneId} ${p.ref.file}` : p.ref.kind === 'page' ? p.ref.name : p.ref.chapterId}">${p.quote}</passage>`).join('\n')}\n</attached_passages>`
+      ? `<attached_passages>\n${passages.map((p) => `<passage doc="${p.ref.kind === 'scene' ? `${p.ref.sceneId} ${p.ref.file}` : p.ref.kind === 'page' ? p.ref.name : p.ref.kind === 'note' ? `note ${p.ref.id}` : p.ref.chapterId}">${p.quote}</passage>`).join('\n')}\n</attached_passages>`
       : ''
     // What happened since the last reply comes first; the author's message last.
     const content: BetaContentBlockParam[] = [

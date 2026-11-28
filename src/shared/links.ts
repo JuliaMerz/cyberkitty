@@ -13,6 +13,8 @@ export function linkFor(ref: DocRef | { kind: 'alert'; id: string } | { kind: 'c
       return `ck:chapter/${encodeURIComponent(ref.chapterId)}`
     case 'page':
       return `ck:page/${encodeURIComponent(ref.name)}${q}`
+    case 'note':
+      return `ck:note/${encodeURIComponent(ref.id)}${q}`
     case 'alert':
       return `ck:alert/${encodeURIComponent(ref.id)}`
     case 'change':
@@ -36,6 +38,8 @@ export function parseLink(href: string): NavTarget | null {
       return { kind: 'chapter', chapterId: id }
     case 'page':
       return { kind: 'page', name: id as PageName, quote }
+    case 'note':
+      return { kind: 'note', id, quote }
     case 'alert':
       return { kind: 'alerts', id }
     case 'change':

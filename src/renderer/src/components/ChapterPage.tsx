@@ -7,6 +7,7 @@ import { useApp } from '../appContext'
 import { DocEditor } from './DocEditor'
 import { KeyBar, stepTo, useCounts } from './KeyBar'
 import { Summary } from './ScenePage'
+import { NoteGlyph } from './Rail'
 
 const ck = window.ck
 
@@ -20,6 +21,7 @@ export function ChapterPage({ chapter, onTree }: { chapter: ChapterRef; onTree: 
   const [request, setRequest] = useState('')
   const [proposing, setProposing] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [newNote, setNewNote] = useState<string | null>(null)
 
   useEffect(() => {
     const load = (): void => {
@@ -43,6 +45,35 @@ export function ChapterPage({ chapter, onTree }: { chapter: ChapterRef; onTree: 
   }
 
   const words = chapter.scenes.reduce((n, s) => n + s.words, 0)
+
+  async function addNote(): Promise<void> {
+    const title = newNote?.trim()
+    setNewNote(null)
+    if (!title) return
+    const r = await ck.createNote(title, { where: 'manuscript', chapterId: chapter.id, after: chapter.order.at(-1) ?? null })
+    onTree(r.tree)
+    app.navigate({ kind: 'note', id: r.noteId })
+  }
+
+  const sceneCard = (s: ChapterRef['scenes'][number]): React.JSX.Element => (
+    <li key={s.id} className="scene-card">
+      <button className="scene-card-title linkish" onClick={() => app.navigate({ kind: 'scene', sceneId: s.id })}>
+        {s.title}
+      </button>
+      <span className="mono muted">
+        {s.hasProse ? `${s.words.toLocaleString()} words` : s.hasNotes ? 'notes only' : 'empty'}
+        {s.toReview ? ` · ${s.toReview} to review` : ''}
+        {s.conflicts ? ` · ${s.conflicts} conflict${s.conflicts === 1 ? '' : 's'}` : ''}
+      </span>
+      {summaries[s.id] ? (
+        <p className="scene-card-summary">
+          <Summary summary={summaries[s.id]} onSeen={() => void ck.markSummarySeen(s.id)} />
+        </p>
+      ) : (
+        <p className="scene-card-summary muted">{s.hasProse ? 'Claude writes a summary once the scene settles.' : 'No prose yet.'}</p>
+      )}
+    </li>
+  )
 
   return (
     <main className="page">
@@ -80,26 +111,38 @@ export function ChapterPage({ chapter, onTree }: { chapter: ChapterRef; onTree: 
         <section className="chapter-side">
           <h3 className="section-title">Scenes</h3>
           <ol className="scene-cards">
-            {chapter.scenes.map((s) => (
-              <li key={s.id} className="scene-card">
-                <button className="scene-card-title linkish" onClick={() => app.navigate({ kind: 'scene', sceneId: s.id })}>
-                  {s.title}
-                </button>
-                <span className="mono muted">
-                  {s.hasProse ? `${s.words.toLocaleString()} words` : s.hasNotes ? 'notes only' : 'empty'}
-                  {s.toReview ? ` · ${s.toReview} to review` : ''}
-                  {s.conflicts ? ` · ${s.conflicts} conflict${s.conflicts === 1 ? '' : 's'}` : ''}
-                </span>
-                {summaries[s.id] ? (
-                  <p className="scene-card-summary">
-                    <Summary summary={summaries[s.id]} onSeen={() => void ck.markSummarySeen(s.id)} />
-                  </p>
-                ) : (
-                  <p className="scene-card-summary muted">{s.hasProse ? 'Claude writes a summary once the scene settles.' : 'No prose yet.'}</p>
-                )}
-              </li>
-            ))}
+            {chapter.order.map((id) => {
+              const s = chapter.scenes.find((x) => x.id === id)
+              if (s) return sceneCard(s)
+              const n = chapter.notes.find((x) => x.id === id)
+              return n ? (
+                <li key={n.id} className="note-card">
+                  <button className="linkish note-card-title" onClick={() => app.navigate({ kind: 'note', id: n.id })}>
+                    <NoteGlyph /> {n.title}
+                  </button>
+                  <span className="mono muted">note</span>
+                </li>
+              ) : null
+            })}
           </ol>
+          {newNote === null ? (
+            <button className="linkish small new-note" onClick={() => setNewNote('')}>
+              + New note
+            </button>
+          ) : (
+            <input
+              className="field"
+              autoFocus
+              placeholder="Note title"
+              value={newNote}
+              onChange={(e) => setNewNote(e.target.value)}
+              onBlur={() => void addNote()}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') void addNote()
+                if (e.key === 'Escape') setNewNote(null)
+              }}
+            />
+          )}
 
           <h3 className="section-title">Change the chapter</h3>
           <p className="muted small">

@@ -134,12 +134,14 @@ async function readDocs(): Promise<Doc[]> {
       out.push({ ref: { kind: 'scene', sceneId: s.id, file: 'prose' }, label: `the prose of “${s.title}” (${s.id})`, text: s.prose ?? '' })
     }
   }
+  for (const n of await b.notes()) out.push({ ref: { kind: 'note', id: n.id }, label: `the note “${n.title}” (${n.id})`, text: n.text })
   return out
 }
 
 function labelOf(ref: DocRef): string {
   const known = baseline?.docs.get(docKey(ref))?.label
   if (known) return known
+  if (ref.kind === 'note') return `the note ${ref.id}`
   return ref.kind === 'page' ? `the ${ref.name} page` : ref.kind === 'chapter' ? `the intent of ${ref.chapterId}` : `the ${ref.file} of ${ref.sceneId}`
 }
 
@@ -258,6 +260,10 @@ async function compare(): Promise<void> {
     return
   }
 
+  // A document that went away while one with the same text appeared was moved or renamed (a note moved, a note turned into a scene).
+  const gone = [...before.docs].filter(([key]) => !now.docs.has(key))
+  const moved = new Set<string>()
+
   for (const [key, doc] of now.docs) {
     const current = marks.get(key) ?? new Map<string, MarkRecord>()
     const kept: string[] = []
@@ -279,6 +285,13 @@ async function compare(): Promise<void> {
 
     const old = before.docs.get(key)
     if (old && old.text === doc.text) continue
+    const from = old ? undefined : gone.find(([k, d]) => !moved.has(k) && d.text === doc.text && d.text.trim())
+    if (from) {
+      moved.add(from[0])
+      known.delete(from[0])
+      logEvent('author', `Moved: ${from[1].label} is now ${doc.label}, unchanged.`, { kind: 'edit' })
+      continue
+    }
     const shaded = [...current.values()].filter((m) => m.kind === 'unreviewed' || m.kind === 'updated')
     const tag = (p: string): string => {
       const m = shaded.find((x) => x.anchor.quote.includes(p) || p.includes(x.anchor.quote))
@@ -288,7 +301,7 @@ async function compare(): Promise<void> {
     if (changes.length) logEvent('author', `${old ? 'Changes in' : 'New document:'} ${doc.label}:\n${changes.join('\n')}`, { kind: 'edit' })
   }
   for (const [key, old] of before.docs) {
-    if (now.docs.has(key)) continue
+    if (now.docs.has(key) || moved.has(key)) continue
     known.delete(key)
     logEvent('author', `Removed: ${old.label}.`, { kind: 'edit' })
   }

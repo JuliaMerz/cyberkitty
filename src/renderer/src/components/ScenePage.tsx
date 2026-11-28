@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { EditorView, ViewUpdate } from '@codemirror/view'
-import type { ChapterRef, DocRef, DraftResult, SceneSummary, Settings } from '@shared/types'
+import type { BookTree, ChapterRef, DocRef, DraftResult, SceneSummary, Settings } from '@shared/types'
 import { machineEdit, markDraftedParagraphs } from '../editor/marks'
 import { useApp } from '../appContext'
 import { KeyBar, stepTo, useCounts } from './KeyBar'
@@ -20,6 +20,9 @@ interface Props {
   view: View
   onViewChange: (v: View) => void
   reveal?: { file: 'prose' | 'notes'; quote: string; n: number } | null
+  /** The scene has no prose yet, so it can become a note. */
+  canBeNote?: boolean
+  onTree?: (t: BookTree) => void
 }
 
 interface Notice {
@@ -27,7 +30,7 @@ interface Notice {
   text: string
 }
 
-export function ScenePage({ sceneId, title, chapter, view, onViewChange, reveal }: Props): React.JSX.Element {
+export function ScenePage({ sceneId, title, chapter, view, onViewChange, reveal, canBeNote, onTree }: Props): React.JSX.Element {
   const app = useApp()
   const [tick, setTick] = useState(0)
   const [drafting, setDrafting] = useState<string | null>(null)
@@ -188,6 +191,23 @@ export function ScenePage({ sceneId, title, chapter, view, onViewChange, reveal 
           {counts.conflict > 0 && (
             <button className="chip chip-orange" onClick={() => stepTo(refs, 'conflict')}>
               {counts.conflict} conflict{counts.conflict === 1 ? '' : 's'}
+            </button>
+          )}
+          {canBeNote && !drafting && (
+            <button
+              className="linkish small"
+              title="This scene has no prose yet: make it a note in the same place, outside the book"
+              onClick={() =>
+                void ck.sceneToNote(sceneId).then(
+                  (r) => {
+                    onTree?.(r.tree)
+                    app.navigate({ kind: 'note', id: r.noteId })
+                  },
+                  (err: unknown) => setNotice({ tone: 'error', text: String(err instanceof Error ? err.message : err).replace(/^Error invoking remote method '[^']+': (Error: )?/, '') })
+                )
+              }
+            >
+              Turn into a note
             </button>
           )}
           {drafting ? (

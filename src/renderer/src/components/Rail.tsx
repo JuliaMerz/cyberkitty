@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { DIRECTION_PAGES, type BookTree, type JobStatus, type SpendSummary } from '@shared/types'
+import { DIRECTION_PAGES, NOTES_DIR, type BookTree, type JobStatus, type NotePlace, type NoteRef, type SpendSummary } from '@shared/types'
 import type { Route } from '../App'
 
 interface Props {
@@ -11,6 +11,7 @@ interface Props {
   onOpen: (r: Route) => void
   onNewChapter: (title: string) => void
   onNewScene: (chapterId: string, title: string) => void
+  onNewNote: (title: string, place: NotePlace) => void
   onToggleChat: () => void
   onNewBook: () => void
   onOpenBook: () => void
@@ -21,6 +22,15 @@ function Chevron({ open }: { open: boolean }): React.JSX.Element {
   return (
     <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" className="icon">
       <path d={open ? 'M4 6l4 4 4-4' : 'M6 4l4 4-4 4'} />
+    </svg>
+  )
+}
+
+/** The glyph that marks a note: a page with a folded corner. */
+export function NoteGlyph(): React.JSX.Element {
+  return (
+    <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true" className="icon note-glyph">
+      <path d="M4 2.5h5.5L12.5 5.5v8H4z M9.5 2.5v3h3 M6 8.5h4.5 M6 11h3" />
     </svg>
   )
 }
@@ -69,12 +79,36 @@ function NewItem({ label, indent, onCreate }: { label: string; indent?: boolean;
   )
 }
 
-export function Rail({ tree, route, spend, job, chatOpen, onOpen, onNewChapter, onNewScene, onToggleChat, onNewBook, onOpenBook, onCloseBook }: Props): React.JSX.Element {
+export function Rail({ tree, route, spend, job, chatOpen, onOpen, onNewChapter, onNewScene, onNewNote, onToggleChat, onNewBook, onOpenBook, onCloseBook }: Props): React.JSX.Element {
   const currentChapter =
-    route?.kind === 'scene' ? tree.chapters.find((c) => c.scenes.some((s) => s.id === route.sceneId))?.id : route?.kind === 'chapter' ? route.chapterId : undefined
+    route?.kind === 'scene'
+      ? tree.chapters.find((c) => c.scenes.some((s) => s.id === route.sceneId))?.id
+      : route?.kind === 'chapter'
+        ? route.chapterId
+        : route?.kind === 'note'
+          ? tree.chapters.find((c) => c.notes.some((n) => n.id === route.id))?.id
+          : undefined
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const pct = spend.capUsd > 0 ? Math.min(100, (spend.todayUsd / spend.capUsd) * 100) : 0
   const is = (kind: Route['kind'], extra?: (r: Route) => boolean): boolean => route?.kind === kind && (!extra || extra(route))
+
+  // A note: a quieter row with a note glyph and no status.
+  const noteRow = (n: NoteRef, indent: boolean): React.JSX.Element => {
+    const current = route?.kind === 'note' && route.id === n.id
+    return (
+      <button
+        key={n.id}
+        className={`rail-row rail-note${indent ? ' indent' : ''}${current ? ' current' : ''}`}
+        onClick={() => onOpen({ kind: 'note', id: n.id })}
+        aria-current={current ? 'page' : undefined}
+        title={n.id}
+      >
+        <NoteGlyph />
+        <span className="rail-scene-title">{n.title}</span>
+      </button>
+    )
+  }
+  const folders = [...new Set(tree.notes.map((n) => n.folder))]
 
   const row = (label: string, r: Route, current: boolean, badge?: React.ReactNode): React.JSX.Element => (
     <button key={label} className={`rail-row${current ? ' current' : ''}`} onClick={() => onOpen(r)} aria-current={current ? 'page' : undefined}>
@@ -112,6 +146,17 @@ export function Rail({ tree, route, spend, job, chatOpen, onOpen, onNewChapter, 
         )}
       </div>
 
+      <div className="rail-group rail-notes">
+        <div className="rail-heading">Notes</div>
+        {folders.map((f) => (
+          <div key={f} className="rail-folder">
+            {f !== NOTES_DIR && <div className="rail-subheading">{f.slice(NOTES_DIR.length + 1)}</div>}
+            {tree.notes.filter((n) => n.folder === f).map((n) => noteRow(n, f !== NOTES_DIR))}
+          </div>
+        ))}
+        <NewItem label="New note" onCreate={(t) => onNewNote(t, { where: 'notes' })} />
+      </div>
+
       <div className="rail-group">
         <div className="rail-heading">Book</div>
         {row('Story bible', { kind: 'bible' }, is('bible'))}
@@ -123,7 +168,12 @@ export function Rail({ tree, route, spend, job, chatOpen, onOpen, onNewChapter, 
 
       <div className="rail-group rail-manuscript">
         <div className="rail-heading">Manuscript</div>
-        {tree.chapters.map((c) => {
+        {tree.order.map((id) => {
+          const c = tree.chapters.find((x) => x.id === id)
+          if (!c) {
+            const n = tree.manuscriptNotes.find((x) => x.id === id)
+            return n ? noteRow(n, false) : null
+          }
           const open = !collapsed[c.id] || currentChapter === c.id
           const chapterCurrent = route?.kind === 'chapter' && route.chapterId === c.id
           return (
@@ -138,7 +188,12 @@ export function Rail({ tree, route, spend, job, chatOpen, onOpen, onNewChapter, 
               </div>
               {open && (
                 <>
-                  {c.scenes.map((s) => {
+                  {c.order.map((item) => {
+                    const s = c.scenes.find((x) => x.id === item)
+                    if (!s) {
+                      const n = c.notes.find((x) => x.id === item)
+                      return n ? noteRow(n, true) : null
+                    }
                     const current = route?.kind === 'scene' && route.sceneId === s.id
                     const status = s.conflicts
                       ? { text: `${s.conflicts} conflict${s.conflicts === 1 ? '' : 's'}`, cls: 'orange' }

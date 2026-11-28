@@ -9,6 +9,7 @@ CyberKitty is a desktop app for writing fiction with Claude one scene at a time.
 ## What v1 does
 
 **Writing a scene**
+- Notes for scratch work: a Notes section in the rail, and notes you can place anywhere among the chapters and scenes. They are never part of the book (no word counts, no bible facts, no alerts, not in the manuscript export); Claude reads them as your scratch work and can start one when you ask it to keep something. A note in a chapter can become a scene.
 - Chapters and scenes in the left rail. A scene is two Markdown files side by side: its notes (the scratchpad) and its prose. An Obsidian-style live-preview editor; Markdown syntax fades until the cursor is on it.
 - **Draft it**: the writer drafts from your notes and your style page, streamed into the prose file. Select notes to draft only those beats, or put the cursor on a `[bracketed gap]`. Quoted lines in the notes are pinned and used word for word.
 - Everything Claude wrote is shaded **unreviewed**, per paragraph. Hover a shade for small buttons: Accept, other ways to say the sentence, talk about it in chat. Typing in a paragraph also makes it yours.
@@ -47,6 +48,8 @@ bible/characters.md events.md movements.md places.md world.md   the story bible,
 manuscript/01-the-harbor/chapter.md            # The Harbor
 manuscript/01-the-harbor/01-arrival.md         prose only
 manuscript/01-the-harbor/01-arrival.notes.md   the scratchpad
+manuscript/01-the-harbor/01n-smells.note.md    a note of yours between two scenes; never part of the book
+notes/ferry-timetable.md                       the Notes section: any Markdown files and folders
 .cyberkitty/                                   sidecars, chat, alerts and history; safe to delete (you lose review state and the bible's links to its sources, never words)
 ```
 

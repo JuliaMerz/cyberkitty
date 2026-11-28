@@ -3,7 +3,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { app, BrowserWindow, dialog, ipcMain, Menu, shell, type MenuItemConstructorOptions } from 'electron'
 import { watch, type FSWatcher } from 'chokidar'
-import { docKey, type AlternativesRequest, type BibleEntry, type BookTree, type ChangeSpec, type Correction, type DocRef, type DraftRequest, type HunkDecision, type KeyResult, type MarkRecord, type PassageRef, type Place, type RewriteRequest, type Settings, type ToolResult } from '@shared/types'
+import { docKey, type AlternativesRequest, type BibleEntry, type BookTree, type ChangeSpec, type Correction, type DocRef, type DraftRequest, type HunkDecision, type KeyResult, type MarkRecord, type NotePlace, type PassageRef, type Place, type RewriteRequest, type Settings, type ToolResult } from '@shared/types'
 import { firstHeading } from '@shared/notes'
 import { BIBLE_DIR } from '@shared/biblemd'
 import { Book, META } from './project'
@@ -256,6 +256,7 @@ function buildMenu(): void {
         { label: 'New Book…', accelerator: 'CmdOrCtrl+Shift+N', click: () => opened(createBookDialog()) },
         { label: 'New Chapter…', accelerator: 'CmdOrCtrl+Alt+N', click: ui('new-chapter') },
         { label: 'New Scene…', accelerator: 'CmdOrCtrl+N', click: ui('new-scene') },
+        { label: 'New Note…', click: ui('new-note') },
         { type: 'separator' },
         { label: 'Open Book…', accelerator: 'CmdOrCtrl+O', click: () => opened(openBookDialog()) },
         { label: 'Open the Sample Book', click: () => opened(openSample()) },
@@ -384,6 +385,26 @@ function registerIpc(): void {
     const b = requireBook()
     const sceneId = await b.createScene(chapterId, title)
     return { tree: await treeWithCounts(b), sceneId }
+  })
+  handle('book:create-note', async (title: string, place: NotePlace) => {
+    const b = requireBook()
+    const noteId = await b.createNote(title, place)
+    return { tree: await treeWithCounts(b), noteId }
+  })
+  handle('book:move-note', async (noteId: string, place: NotePlace) => {
+    const b = requireBook()
+    const to = await b.moveNote(noteId, place)
+    return { tree: await treeWithCounts(b), noteId: to }
+  })
+  handle('book:note-to-scene', async (noteId: string) => {
+    const b = requireBook()
+    const sceneId = await b.noteToScene(noteId)
+    return { tree: await treeWithCounts(b), sceneId }
+  })
+  handle('book:scene-to-note', async (sceneId: string) => {
+    const b = requireBook()
+    const noteId = await b.sceneToNote(sceneId)
+    return { tree: await treeWithCounts(b), noteId }
   })
   handle('book:rename-scene', async (sceneId: string, title: string) => {
     const b = requireBook()

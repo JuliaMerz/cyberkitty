@@ -26,6 +26,10 @@ const api: CkApi = {
   createChapter: (title) => inv('book:create-chapter', title),
   createScene: (chapterId, title) => inv('book:create-scene', chapterId, title),
   renameScene: (sceneId, title) => inv('book:rename-scene', sceneId, title),
+  createNote: (title, place) => inv('book:create-note', title, place),
+  moveNote: (noteId, place) => inv('book:move-note', noteId, place),
+  noteToScene: (noteId) => inv('book:note-to-scene', noteId),
+  sceneToNote: (sceneId) => inv('book:scene-to-note', sceneId),
 
   readDoc: (ref) => inv('doc:read', ref),
   writeDoc: (ref, text) => inv('doc:write', ref, text),

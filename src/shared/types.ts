@@ -40,15 +40,43 @@ export const DIRECTION_PAGES: Array<{ name: PageName; title: string; hint: strin
   { name: 'style.md', title: 'Style', hint: 'Samples, description and ban list. Goes into every writing prompt.' }
 ]
 
-/** A Markdown document the app edits: one file of a scene, a chapter's intent, or a book page. */
+/** A Markdown document the app edits: one file of a scene, a chapter's intent, a book page, or a note. */
 export type DocRef =
   | { kind: 'scene'; sceneId: string; file: SceneFile }
   | { kind: 'chapter'; chapterId: string }
   | { kind: 'page'; name: PageName }
+  | { kind: 'note'; id: string }
 
 export function docKey(ref: DocRef): string {
+  if (ref.kind === 'note') return `note:${ref.id}`
   return ref.kind === 'scene' ? `scene:${ref.sceneId}:${ref.file}` : ref.kind === 'chapter' ? `chapter:${ref.chapterId}` : `page:${ref.name}`
 }
+
+/** Where notes live: the Notes section, any Markdown file under notes/. */
+export const NOTES_DIR = 'notes'
+/** A note woven into the manuscript: numbered like a scene or chapter, ending in .note.md. */
+export const NOTE_EXT = '.note.md'
+
+/**
+ * A note: the author's scratch work, never part of the book. It lives in the
+ * Notes section (notes/, folders as groups) or among the chapters and scenes
+ * (manuscript/NN-slug.note.md between chapters, or in a chapter folder between
+ * scenes).
+ */
+export interface NoteRef {
+  /** Path relative to the book folder, with its extension, e.g. notes/ferry-timetable.md */
+  id: string
+  title: string
+  /** The folder it is in: notes, notes/research, manuscript, or a chapter id. */
+  folder: string
+  words: number
+}
+
+/** Where a note goes when it is made or moved. */
+export type NotePlace =
+  | { where: 'notes'; folder?: string }
+  /** Among the chapters (no chapterId) or among a chapter's scenes, after the item with this id (null: first). */
+  | { where: 'manuscript'; chapterId?: string; after: string | null }
 
 /**
  * A mark as stored in a sidecar. It holds no offsets that the Markdown depends
@@ -107,12 +135,22 @@ export interface ChapterRef {
   number: number
   title: string
   scenes: SceneRef[]
+  /** Notes woven in among the scenes. */
+  notes: NoteRef[]
+  /** Scene and note ids in reading order. */
+  order: string[]
 }
 
 export interface BookTree {
   root: string
   title: string
   chapters: ChapterRef[]
+  /** The Notes section. */
+  notes: NoteRef[]
+  /** Notes woven in between chapters. */
+  manuscriptNotes: NoteRef[]
+  /** Chapter and between-chapter note ids in reading order. */
+  order: string[]
   openAlerts: number
   divergedOutline: number
 }
@@ -218,8 +256,9 @@ export interface Correction {
 /** Where the author is when they type. Every chat message carries one. */
 export interface Place {
   label: string
-  page: 'scene' | 'chapter' | 'page' | 'bible' | 'timeline' | 'alerts' | 'history' | 'settings' | 'change' | 'diagrams' | 'none'
+  page: 'scene' | 'chapter' | 'page' | 'note' | 'bible' | 'timeline' | 'alerts' | 'history' | 'settings' | 'change' | 'diagrams' | 'none'
   sceneId?: string
+  noteId?: string
   chapterId?: string
   file?: SceneFile
   pageName?: PageName
@@ -434,6 +473,12 @@ export interface CkApi {
   createChapter(title: string): Promise<BookTree>
   createScene(chapterId: string, title: string): Promise<{ tree: BookTree; sceneId: string }>
   renameScene(sceneId: string, title: string): Promise<BookTree>
+  createNote(title: string, place: NotePlace): Promise<{ tree: BookTree; noteId: string }>
+  moveNote(noteId: string, place: NotePlace): Promise<{ tree: BookTree; noteId: string }>
+  /** A note in a chapter becomes the notes of a new scene in its place. */
+  noteToScene(noteId: string): Promise<{ tree: BookTree; sceneId: string }>
+  /** A scene with no prose becomes a note in its place. */
+  sceneToNote(sceneId: string): Promise<{ tree: BookTree; noteId: string }>
 
   readDoc(ref: DocRef): Promise<DocContent>
   writeDoc(ref: DocRef, text: string): Promise<void>
@@ -497,13 +542,14 @@ export interface CkApi {
   editorsFlushed(id: number): void
 }
 
-export type MenuCommand = 'new-chapter' | 'new-scene' | 'import' | 'close-book' | 'settings' | 'toggle-chat'
+export type MenuCommand = 'new-chapter' | 'new-scene' | 'new-note' | 'import' | 'close-book' | 'settings' | 'toggle-chat'
 
 /** Where a link in chat, an alert or the bible points. */
 export type NavTarget =
   | { kind: 'scene'; sceneId: string; file?: SceneFile; quote?: string }
   | { kind: 'chapter'; chapterId: string }
   | { kind: 'page'; name: PageName; quote?: string }
+  | { kind: 'note'; id: string; quote?: string }
   | { kind: 'bible'; id?: string }
   | { kind: 'timeline' }
   | { kind: 'alerts'; id?: string }

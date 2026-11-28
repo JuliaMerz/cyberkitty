@@ -15,6 +15,7 @@ export interface AppApi {
   settings: Settings
   ban: string[]
   sceneTitle: (sceneId: string) => string
+  noteTitle: (noteId: string) => string
 }
 
 export const AppCtx = createContext<AppApi | null>(null)
@@ -87,8 +88,9 @@ export function markAt(ref: DocRef, quote?: string): MarkKind | null {
   return hit?.record.kind ?? null
 }
 
-export function refLabel(ref: DocRef, sceneTitle: (id: string) => string): string {
-  if (ref.kind === 'scene') return `${sceneTitle(ref.sceneId)}${ref.file === 'notes' ? ', notes' : ''}`
+export function refLabel(ref: DocRef, app: Pick<AppApi, 'sceneTitle' | 'noteTitle'>): string {
+  if (ref.kind === 'note') return `${app.noteTitle(ref.id)}, a note`
+  if (ref.kind === 'scene') return `${app.sceneTitle(ref.sceneId)}${ref.file === 'notes' ? ', notes' : ''}`
   if (ref.kind === 'chapter') return 'Chapter intent'
   return ref.name.replace(/\.md$/, '').replace(/^./, (c) => c.toUpperCase())
 }

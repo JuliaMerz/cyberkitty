@@ -10,8 +10,8 @@
 // cold anyway (no call for most of an hour), so a fresh copy costs nothing
 // extra.
 //
-// The book is split into units (a page, a chapter intent, a scene, a bible
-// entry). A unit's rendered text is what the snapshot shows and what the diff
+// The book is split into units (a page, a chapter intent, a scene, a note, a
+// bible entry). A unit's rendered text is what the snapshot shows and what the diff
 // compares, so "changed" means exactly "renders differently".
 
 import { DIRECTION_PAGES, type DocRef, type PageName } from '@shared/types'
@@ -25,7 +25,7 @@ import { bibleStore, summaryStore } from './stores'
 export interface SnapshotMode {
   /** Include the style page (the writer carries it in its own block instead). */
   style: boolean
-  /** Include scene notes (the scan reads prose only). */
+  /** Include scene notes and the author's notes (the scan reads prose only). */
   notes: boolean
   /** Set when the book is too long: prose outside this chapter is left out. */
   proseOnlyIn?: string
@@ -52,7 +52,12 @@ interface Rendered {
   pages: Unit[]
   planned: Unit
   bible: Unit[]
-  chapters: Array<{ id: string; number: number; title: string; intent: Unit; scenes: Unit[] }>
+  /** The Notes section. */
+  notes: Unit[]
+  /** Notes before the first chapter. */
+  notesFirst: Unit[]
+  /** Each chapter's scenes and notes in order, and the notes that follow the chapter. */
+  chapters: Array<{ id: string; number: number; title: string; intent: Unit; scenes: Unit[]; notesAfter: Unit[] }>
   /** Chapter and scene ids and titles in order, to notice structural changes. */
   contents: string
   /** Open alerts and the conversation so far, in history mode. */
@@ -94,6 +99,14 @@ async function render(mode: SnapshotMode, upTo: number): Promise<Rendered> {
   const tree = await b.tree()
   const scenes = await b.scenes()
   const summaries = await summaryStore.read()
+  const allNotes = mode.notes ? await b.notes() : []
+  const noteUnit = async (id: string): Promise<Unit | null> => {
+    const n = allNotes.find((x) => x.id === id)
+    if (!n) return null
+    const marks = await review({ kind: 'note', id })
+    return { key: `note:${id}`, label: `note ${id}`, text: `<note id="${esc(id)}" title="${esc(n.title)}">\n${stripHeading(n.text).trim() || '(empty)'}\n${marks ? `${marks}\n` : ''}</note>` }
+  }
+  const noteUnits = async (ids: string[]): Promise<Unit[]> => (await Promise.all(ids.map(noteUnit))).filter((u): u is Unit => u !== null)
   const pages: Unit[] = []
   for (const name of DIRECTION) {
     const text = (await b.readPage(name)).trim()
@@ -107,11 +120,29 @@ async function render(mode: SnapshotMode, upTo: number): Promise<Rendered> {
     .map((e) => ({ key: `bible:${e.id}`, label: `bible entry ${e.id}`, text: bibleLine(e) }))
   const chapters: Rendered['chapters'] = []
   const contents: string[] = []
+  const notes = await noteUnits(tree.notes.map((n) => n.id))
+  for (const n of tree.notes) contents.push(`note ${n.id} · ${n.title}`)
+  // Manuscript-level notes: before the first chapter, and after each chapter.
+  const between = new Map<string | null, string[]>()
+  let last: string | null = null
+  for (const id of tree.order) {
+    if (tree.chapters.some((c) => c.id === id)) last = id
+    else between.set(last, [...(between.get(last) ?? []), id])
+  }
+  for (const id of between.get(null) ?? []) contents.push(`note ${id}`)
+  const notesFirst = await noteUnits(between.get(null) ?? [])
   for (const c of tree.chapters) {
     const intent = [stripHeading((await b.readText(`${c.id}/chapter.md`)) ?? '').trim(), await review({ kind: 'chapter', chapterId: c.id })].filter(Boolean).join('\n')
     contents.push(`${c.id} · ${c.title}`)
     const units: Unit[] = []
-    for (const s of scenes.filter((x) => x.chapterId === c.id)) {
+    for (const id of c.order) {
+      const s = scenes.find((x) => x.id === id)
+      if (!s) {
+        const u = await noteUnit(id)
+        if (u) units.push(u)
+        contents.push(`  note ${id}`)
+        continue
+      }
       contents.push(`  ${s.id} · ${s.title}`)
       const lines = [`<scene id="${esc(s.id)}" title="${esc(s.title)}">`]
       const sum = summaries[s.id]
@@ -131,8 +162,10 @@ async function render(mode: SnapshotMode, upTo: number): Promise<Rendered> {
       number: c.number,
       title: c.title,
       intent: { key: `intent:${c.id}`, label: `chapter intent ${c.id}`, text: `<chapter_intent chapter_id="${esc(c.id)}">\n${intent || '(empty)'}\n</chapter_intent>` },
-      scenes: units
+      scenes: units,
+      notesAfter: await noteUnits(between.get(c.id) ?? [])
     })
+    for (const id of between.get(c.id) ?? []) contents.push(`note ${id}`)
   }
   const conversation = `<conversation_so_far>\n${await chatText()}\n</conversation_so_far>`
   const extras = mode.history ? `${await openAlertsText()}\n${conversation}\n${await recentActions(upTo)}` : mode.conversation ? conversation : undefined
@@ -143,13 +176,15 @@ async function render(mode: SnapshotMode, upTo: number): Promise<Rendered> {
     pages,
     planned: { key: 'page:bible.md', label: 'bible.md', text: `<page name="bible.md">\n${planned || '(none)'}\n</page>` },
     bible,
+    notes,
+    notesFirst,
     chapters,
     contents: contents.join('\n')
   }
 }
 
 function unitsOf(r: Rendered): Map<string, Unit> {
-  const all = [...(r.style ? [r.style] : []), ...r.pages, r.planned, ...r.bible, ...r.chapters.flatMap((c) => [c.intent, ...c.scenes])]
+  const all = [...(r.style ? [r.style] : []), ...r.pages, r.planned, ...r.bible, ...r.notes, ...r.notesFirst, ...r.chapters.flatMap((c) => [c.intent, ...c.scenes, ...c.notesAfter])]
   return new Map(all.map((u) => [u.key, u]))
 }
 
@@ -158,9 +193,11 @@ function assemble(r: Rendered): string {
   if (r.style) out.push(r.style.text)
   out.push('<direction>', ...r.pages.map((p) => p.text), '</direction>')
   out.push('<bible>', r.planned.text, '<entries>', r.bible.map((e) => e.text).join('\n') || '(none yet)', '</entries>', '</bible>')
+  if (r.notes.length) out.push('<notes_section>', ...r.notes.map((n) => n.text), '</notes_section>')
   out.push(`<manuscript title="${esc(r.title)}">`)
+  out.push(...r.notesFirst.map((n) => n.text))
   for (const c of r.chapters) {
-    out.push(`<chapter id="${esc(c.id)}" number="${c.number}" title="${esc(c.title)}">`, c.intent.text, ...c.scenes.map((s) => s.text), '</chapter>')
+    out.push(`<chapter id="${esc(c.id)}" number="${c.number}" title="${esc(c.title)}">`, c.intent.text, ...c.scenes.map((s) => s.text), '</chapter>', ...c.notesAfter.map((n) => n.text))
   }
   out.push('</manuscript>')
   if (r.extras) out.push(r.extras)
