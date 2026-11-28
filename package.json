@@ -1,6 +1,50 @@
 {
+  "name": "cyberkitty",
+  "productName": "CyberKitty",
+  "version": "0.1.0",
+  "description": "Write a novel with Claude, in your own voice.",
+  "license": "UNLICENSED",
+  "private": true,
+  "main": "out/main/index.js",
+  "type": "module",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "dist": "electron-vite build && electron-builder --publish never",
+    "e2e": "node test/e2e/smoke.cjs",
+    "postinstall": "node scripts/ensure-electron.cjs"
+  },
   "dependencies": {
-    "json-schema-to-typescript": "^13.1.1",
-    "json2ts": "^0.0.7"
+    "@anthropic-ai/sdk": "^1.14.0",
+    "@codemirror/commands": "^6.11.2",
+    "@codemirror/lang-markdown": "^6.5.2",
+    "@codemirror/language": "^6.13.1",
+    "@codemirror/state": "^6.7.6",
+    "@codemirror/view": "^6.44.0",
+    "@fontsource/inter": "^5.3.0",
+    "@fontsource/jetbrains-mono": "^5.3.0",
+    "@fontsource/literata": "^5.3.0",
+    "@lezer/highlight": "^1.2.5",
+    "@lezer/markdown": "^1.8.2",
+    "chokidar": "^6.0.0",
+    "isomorphic-git": "^1.44.19",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.11",
+    "@types/react": "^19.3.3",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.3.0",
+    "electron": "^45.5.0",
+    "electron-builder": "^26.18.0",
+    "electron-vite": "^6.0.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8",
+    "vitest": "^5.1.2"
   }
 }

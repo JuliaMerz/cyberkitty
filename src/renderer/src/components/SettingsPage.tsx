@@ -1,0 +1,193 @@
+import { useEffect, useState } from 'react'
+import { DEFAULT_SETTINGS, LANE_LABELS } from '@shared/defaults'
+import { MODEL_CHOICES } from '@shared/pricing'
+import type { Effort, KeyResult, Lane, Settings, SpendSummary } from '@shared/types'
+
+const ck = window.ck
+const EFFORTS: Effort[] = ['low', 'medium', 'high', 'xhigh', 'max']
+
+function tokens(n: number): string {
+  return n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${Math.round(n / 1000)}k` : String(n)
+}
+
+/** How today's prompt tokens were billed. Mostly "read from cache" means caching works. */
+function CacheLine({ spend }: { spend: SpendSummary | null }): React.JSX.Element | null {
+  const t = spend?.tokens
+  if (!t || !spend) return null
+  const total = t.uncached + t.cacheRead + t.cacheWrite
+  if (!total) return null
+  return (
+    <p className="muted mono small" data-testid="cache-line">
+      Today: ${spend.todayUsd.toFixed(2)}. Of {tokens(total)} prompt tokens, {Math.round((t.cacheRead / total) * 100)}% were read from cache, {tokens(t.cacheWrite)} written to it and {tokens(t.uncached)} sent uncached.
+    </p>
+  )
+}
+
+export function SettingsPage({ settings, onChange }: { settings: Settings; onChange: (s: Settings) => void }): React.JSX.Element {
+  const [hasKey, setHasKey] = useState<boolean | null>(null)
+  const [key, setKey] = useState('')
+  const [saved, setSaved] = useState<KeyResult | null>(null)
+  const [checking, setChecking] = useState(false)
+  const [spend, setSpend] = useState<SpendSummary | null>(null)
+
+  useEffect(() => {
+    void ck.hasApiKey().then(setHasKey)
+    void ck.getSpend().then(setSpend)
+    return ck.onSpend(setSpend)
+  }, [])
+
+  async function update(patch: Partial<Settings>): Promise<void> {
+    onChange(await ck.setSettings(patch))
+  }
+
+  async function saveKey(): Promise<void> {
+    setChecking(true)
+    try {
+      const result = await ck.setApiKey(key)
+      if (result.saved) setKey('')
+      setHasKey(await ck.hasApiKey())
+      setSaved(result)
+    } catch (err) {
+      setSaved({ saved: false, message: String(err instanceof Error ? err.message : err) })
+    } finally {
+      setChecking(false)
+    }
+  }
+
+  return (
+    <main className="page">
+      <header className="page-header">
+        <div className="crumbs">
+          <span className="crumb-current">Settings</span>
+        </div>
+      </header>
+      <div className="settings">
+        <section>
+          <h2>Anthropic API key</h2>
+          <p className="muted">
+            CyberKitty uses your own key. It is kept in your system keychain, never in the book folder, and only ever sent to
+            Anthropic.
+          </p>
+          <div className="row">
+            <input
+              type="password"
+              placeholder={hasKey ? 'A key is saved. Paste a new one to replace it.' : 'sk-ant-…'}
+              value={key}
+              onChange={(e) => {
+                setKey(e.target.value)
+                setSaved(null)
+              }}
+              aria-label="Anthropic API key"
+            />
+            <button className="btn btn-primary" disabled={!key.trim() || checking} onClick={() => void saveKey()}>
+              {checking ? 'Checking…' : 'Save key'}
+            </button>
+          </div>
+          {saved && (saved.message ? <p className={saved.saved ? 'muted' : 'error-text'} role="alert">{saved.message}</p> : <p className="ok">Saved. Anthropic accepted the key.</p>)}
+          {hasKey === false && !saved && <p className="muted">No key yet. Drafting needs one.</p>}
+        </section>
+
+        <section>
+          <h2>Models</h2>
+          <p className="muted">Each kind of work has its own model and effort. These are recommended starting points.</p>
+          <table className="lanes">
+            <tbody>
+              {(Object.keys(LANE_LABELS) as Lane[]).map((lane) => (
+                <tr key={lane}>
+                  <th>
+                    <div>{LANE_LABELS[lane].name}</div>
+                    <div className="muted small">{LANE_LABELS[lane].tasks}</div>
+                  </th>
+                  <td>
+                    <select
+                      aria-label={`${LANE_LABELS[lane].name} model`}
+                      value={settings.lanes[lane].model}
+                      onChange={(e) => void update({ lanes: { ...settings.lanes, [lane]: { ...settings.lanes[lane], model: e.target.value } } })}
+                    >
+                      {MODEL_CHOICES.map((m) => (
+                        <option key={m}>{m}</option>
+                      ))}
+                    </select>
+                  </td>
+                  <td>
+                    <select
+                      aria-label={`${LANE_LABELS[lane].name} effort`}
+                      value={settings.lanes[lane].effort}
+                      onChange={(e) => void update({ lanes: { ...settings.lanes, [lane]: { ...settings.lanes[lane], effort: e.target.value as Effort } } })}
+                    >
+                      {EFFORTS.map((x) => (
+                        <option key={x}>{x}</option>
+                      ))}
+                    </select>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <button className="btn" onClick={() => void update({ lanes: DEFAULT_SETTINGS.lanes })}>
+            Reset to recommended
+          </button>
+        </section>
+
+        <section>
+          <h2>Spending</h2>
+          <label className="row">
+            <span>Daily cap for background work (USD)</span>
+            <input
+              type="number"
+              min={0}
+              step={0.5}
+              value={settings.dailyCapUsd}
+              onChange={(e) => void update({ dailyCapUsd: Math.max(0, Number(e.target.value) || 0) })}
+            />
+          </label>
+          <CacheLine spend={spend} />
+        </section>
+
+        <section>
+          <h2>Writing help</h2>
+          <label className="row">
+            <span>How much Claude volunteers in chat while you plan</span>
+            <select value={settings.blockingHelp} onChange={(e) => void update({ blockingHelp: e.target.value as Settings['blockingHelp'] })} aria-label="How much Claude volunteers">
+              <option value="quiet">Quiet: answer what I ask</option>
+              <option value="some">Some: speak up when it matters</option>
+              <option value="lots">Lots: ideas, staging, connections</option>
+            </select>
+          </label>
+          <label className="row check">
+            <input type="checkbox" checked={settings.ghostText} onChange={(e) => void update({ ghostText: e.target.checked })} />
+            <span>Ghost text: suggest the next sentence while I write prose (Tab to take it). Experimental.</span>
+          </label>
+          <label className="row check">
+            <input type="checkbox" checked={settings.reviewWhenSeen} onChange={(e) => void update({ reviewWhenSeen: e.target.checked })} />
+            <span>Count Claude’s paragraphs as reviewed once they have been fully on screen for a few seconds</span>
+          </label>
+        </section>
+
+        <section>
+          <h2>Pauses</h2>
+          <label className="row">
+            <span>Seconds without typing before work counts as settled</span>
+            <input
+              type="number"
+              min={5}
+              step={5}
+              value={settings.settleSeconds}
+              onChange={(e) => void update({ settleSeconds: Math.max(5, Number(e.target.value) || 30) })}
+            />
+          </label>
+          <label className="row">
+            <span>Minutes without typing before Claude reads the whole book for inconsistencies</span>
+            <input
+              type="number"
+              min={2}
+              step={1}
+              value={settings.scanIdleMinutes}
+              onChange={(e) => void update({ scanIdleMinutes: Math.max(2, Number(e.target.value) || 10) })}
+            />
+          </label>
+        </section>
+      </div>
+    </main>
+  )
+}
